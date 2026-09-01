@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Đăng nhập · Tạp Hóa POS</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+</head>
+<body class="login-page">
+<main class="login-view">
+  <section class="login-card">
+    <div class="login-brand"><span class="login-logo">🛒</span><div><strong>TẠP HÓA POS</strong><small>Hệ thống bán hàng & quản lý</small></div></div>
+    <div class="login-copy"><h1>Chào mừng trở lại</h1><p>Đăng nhập để tiếp tục quản lý cửa hàng.</p></div>
+    <form id="loginForm" novalidate>
+      <label>Email <input id="loginUsername" autocomplete="username" required placeholder="Nhập email"></label>
+      <label>Mật khẩu <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="Nhập mật khẩu"></label>
+      <button class="primary login-btn" type="submit">Đăng nhập</button>
+      <p id="loginError" class="login-error" aria-live="polite"></p>
+    </form>
+    <div style="display:flex;gap:10px;margin:12px 0;flex-wrap:wrap;justify-content:center;">
+      <button id="googleLoginBtn" class="soft" style="flex:1;display:flex;align-items:center;gap:6px;justify-content:center;"><span style="font-size:20px;">🔵</span> Google</button>
+      <button id="facebookLoginBtn" class="soft" style="flex:1;display:flex;align-items:center;gap:6px;justify-content:center;"><span style="font-size:20px;">🔷</span> Facebook</button>
+    </div>
+    <div class="login-demo"><span>Tài khoản demo</span><button type="button" id="demoLoginBtn" class="soft" style="margin-top:8px;width:100%;">Tài khoản demo: admin / 123456</button><small style="display:block;margin-top:7px;color:#777">Nút này tự tạo tài khoản Firebase nếu chưa tồn tại.</small></div>
+  </section>
+</main>
+<script src="assets/login.js?v=5.4.0" defer></script>
+</body>
+</html>

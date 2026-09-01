@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tạp Hóa POS V4</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div id="appView">
+<aside class="sidebar">
+  <div class="brand"><div class="brand-mark">🛒</div><div><b>TẠP HÓA POS</b><small>Thu ngân & quản lý</small></div></div>
+  <div class="nav-label">MENU CHÍNH</div>
+  <button type="button" class="nav active" data-page="dashboard"><i>⌂</i><span>Tổng quan</span></button>
+  <button type="button" class="nav" data-page="sale"><i>▤</i><span>Thu ngân</span></button>
+  <button type="button" class="nav" data-page="products"><i>◇</i><span>Hàng hóa</span></button>
+  <button type="button" class="nav" data-page="inventory"><i>▣</i><span>Kho hàng</span></button>
+  <button type="button" class="nav" data-page="customers"><i>♙</i><span>Khách hàng</span></button>
+  <button type="button" class="nav" data-page="orders"><i>☷</i><span>Đơn hàng</span></button>
+  <button type="button" class="nav" data-page="suppliers"><i>♜</i><span>Nhà cung cấp</span></button>
+  <button type="button" class="nav" data-page="expenses"><i>₫</i><span>Chi phí</span></button>
+  <button type="button" class="nav" data-page="reports"><i>▥</i><span>Báo cáo</span></button>
+  <button type="button" class="nav" data-page="import"><i>⇅</i><span>Nhập / Xuất Excel</span></button>
+  <button type="button" class="nav" data-page="notifications"><i>♢</i><span>Thông báo</span><b class="side-badge" id="sideNotificationCount">0</b></button>
+  <div class="nav-label settings-label">HỆ THỐNG</div>
+  <button type="button" class="nav" data-page="settings"><i>⚙</i><span>Cài đặt</span></button>
+  <div class="side-bottom">
+    <button type="button" class="nav" id="customerScreenBtn"><i>▣</i><span>Màn hình khách</span></button>
+  </div>
+  <div class="sidebar-user"><div class="avatar" id="sideAvatar">C</div><div><b id="sideUserName">Chủ cửa hàng</b><small>Quản trị hệ thống</small></div><button type="button" id="sideLogout" title="Đăng xuất">↪</button></div>
+</aside>
+
+<main>
+<header class="topbar">
+  <div class="title-wrap"><div class="breadcrumb">TẠP HÓA POS <span>/</span> QUẢN LÝ</div><h1 id="pageTitle">Tổng quan</h1><p id="pageSub">Doanh thu, lợi nhuận và hoạt động cửa hàng.</p></div>
+  <div class="top-actions"><button type="button" class="soft screen-btn" id="customerScreenTop">▣ <span>Màn hình 2</span></button><button type="button" class="soft icon-btn" id="notificationBtn" aria-label="Thông báo">♢ <span id="notificationCount" class="notify-badge">0</span></button><button type="button" class="soft icon-btn" id="settingsTopBtn" aria-label="Cài đặt">⚙</button><div class="user-chip"><div class="avatar" id="userAvatar">A</div><div><b id="userNameTop">Chủ cửa hàng</b><small>Hộ kinh doanh</small></div></div><button type="button" class="soft" id="logoutBtn">Đăng xuất</button></div>
+</header>
+
+<section id="page-sale" class="page hidden">
+  <div class="order-tabs" id="orderTabs"></div>
+  <div class="sale-layout">
+    <div class="panel">
+      <div class="panel-head sale-head">
+        <div>
+          <h2>Sản phẩm</h2>
+          <div id="categoryBar" class="category-bar"></div>
+        </div>
+        <div class="search-area">
+          <input id="barcodeInput" class="search" placeholder="Nhập barcode rồi Enter">
+          <button type="button" class="soft scan-button" id="scanSaleBtn">▣ Quét thêm</button>
+          <input id="productSearch" class="search" placeholder="Tìm tên hàng...">
+        </div>
+      </div>
+      <div id="productGrid" class="product-grid"></div>
+    </div>
+
+    <div class="panel cart-panel">
+      <div class="panel-head">
+        <div>
+          <h2>Đơn hàng</h2>
+          <div class="customer-picker">
+            <select id="customerSelect"><option value="">Khách lẻ</option></select>
+            <button type="button" class="ghost" id="addCustomerBtn">＋ Khách</button>
+            <button type="button" class="ghost" id="findCustomerBtn">🔎 Tìm</button>
+          </div>
+        </div>
+        <button type="button" class="ghost" id="clearCart">Xóa</button>
+      </div>
+      <div id="cart" class="cart"></div>
+      <div class="checkout">
+        <div class="summary"><span>Tạm tính</span><b id="subtotal">0 ₫</b></div>
+        <div class="summary"><span>Giảm giá</span><input id="discount" type="number" min="0" value="0"></div>
+        <div class="total"><span>TỔNG</span><strong id="total">0 ₫</strong></div>
+        <div class="pay-row">
+          <button type="button" class="pay active" data-method="cash">💵 Tiền mặt</button>
+          <button type="button" class="pay" data-method="transfer">🏦 Chuyển khoản</button>
+        </div>
+        <div id="bankBox" class="bank-box hidden">
+          <label>Tài khoản nhận
+            <select id="bankSelect"></select>
+          </label>
+          <div id="qrBox" class="qr-box">
+            <div class="qr-image-wrap"><div id="qr"></div></div>
+            <div class="qr-info"><small id="qrText"></small><div id="qrWarning" class="qr-warning"></div><div class="payment-help">Kiểm tra tên người nhận và số tiền trước khi xác nhận giao dịch.</div><button type="button" class="soft qr-open-btn" id="openQrBtn">↗ Mở QR lớn</button></div>
+          </div>
+        </div>
+        <button type="button" class="checkout-btn" id="checkoutBtn">THANH TOÁN</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="page-inventory" class="page hidden">
+  <div class="inventory-summary">
+    <div class="inv-stat"><div class="inv-icon blue">◇</div><div><span>TỔNG MẶT HÀNG</span><b id="invProductCount">0</b><small>loại hàng</small></div></div>
+    <div class="inv-stat"><div class="inv-icon green">▣</div><div><span>TỔNG TỒN KHO</span><b id="invStockCount">0</b><small>đơn vị cơ sở</small></div></div>
+    <div class="inv-stat"><div class="inv-icon orange">₫</div><div><span>GIÁ TRỊ TỒN KHO</span><b id="invStockValue">0 ₫</b><small>theo giá vốn</small></div></div>
+    <div class="inv-stat"><div class="inv-icon red">!</div><div><span>CẢNH BÁO HÀNG</span><b id="invWarningCount">0</b><small>sản phẩm</small></div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-head inventory-head"><div><h2>Danh sách hàng hóa trong kho</h2><span class="muted">Quản lý tồn kho, giá vốn và cảnh báo hàng hóa</span></div><div class="head-actions"><div class="search-with-icon"><input id="inventorySearch" class="search" placeholder="Tìm barcode / tên hàng..."><span>⌕</span></div><button type="button" class="primary" id="receiveQuickBtn">＋ Nhập hàng</button></div></div>
+    <div class="table-wrap"><table><thead><tr><th>Barcode</th><th>Tên hàng</th><th>Đơn giá</th><th>Đơn vị</th><th>Ưu tiên</th><th>Tồn kho</th><th>Quy cách</th><th>Cảnh báo</th><th></th></tr></thead><tbody id="inventoryTable"></tbody></table></div>
+  </div>
+  <div class="panel receive-panel">
+    <div class="panel-head"><div><h2>Nhập thêm hàng vào kho</h2><span class="muted">Cập nhật nhanh số lượng và giá vốn theo đơn vị.</span></div></div>
+    <!-- Barcode scanner cho nhập kho -->
+    <div class="receive-scan-row" style="padding:0 22px 10px;">
+      <div class="barcode-entry"><input id="receiveBarcodeInput" class="search" placeholder="Nhập barcode rồi Enter..." style="width:100%;font-size:16px;padding:12px;"><button type="button" class="soft scan-button" id="scanReceiveBtn">▣ Quét nhập kho</button></div>
+    </div>
+    <div class="receive-form">
+      <label>Mặt hàng<select id="receiveProduct"></select></label>
+      <label>Đơn vị nhập<select id="receiveUnit"></select></label>
+      <label>Số lượng<input id="receiveQty" type="number" min="1" value="1"></label>
+      <label>Giá vốn / đơn vị<input id="receiveCost" type="number" min="0"></label>
+      <button type="button" class="primary" id="receiveBtn">＋ Đưa vào kho</button>
+    </div>
+  </div>
+</section>
+
+<section id="page-products" class="page hidden">
+  <div class="panel">
+    <div class="panel-head"><div><h2>Hàng hóa</h2><span class="muted">Quản lý barcode, giá bán, giá vốn, đơn vị và tồn kho.</span></div><div class="head-actions"><input id="productsSearch" class="search" placeholder="Tìm barcode / tên hàng..."><button type="button" class="primary" id="addProductBtn">＋ Thêm hàng</button></div></div>
+    <div class="table-wrap"><table><thead><tr><th>Barcode</th><th>Tên hàng</th><th>Đơn vị</th><th>Giá bán</th><th>Giá vốn</th><th>Tồn</th><th>Trạng thái</th><th></th></tr></thead><tbody id="productsTable"></tbody></table></div>
+  </div>
+</section>
+
+<section id="page-customers" class="page hidden">
+  <div class="customer-layout">
+    <div class="panel">
+      <div class="panel-head"><h2>Khách hàng</h2><button type="button" class="primary" id="addCustomerPageBtn">＋ Khách hàng</button></div>
+      <div class="customer-search"><input id="customerPageSearch" class="search" placeholder="Tìm theo tên hoặc số điện thoại..."></div>
+      <div id="customerList" class="customer-list"></div>
+    </div>
+    <div class="panel" id="customerDetail"><div class="empty-detail">Chọn một khách hàng để xem lịch sử mua hàng và lợi nhuận.</div></div>
+  </div>
+</section>
+
+<section id="page-orders" class="page hidden">
+  <div class="panel"><div class="panel-head"><div><h2>Đơn hàng</h2><span class="muted">Theo dõi, xem chi tiết, in lại hoặc hủy đơn.</span></div><div class="head-actions"><input id="orderSearch" class="search compact-search" placeholder="Tìm mã đơn / khách hàng..."><button type="button" class="soft" id="exportOrdersBtn">↥ Xuất đơn</button></div></div>
+  <div class="table-wrap"><table><thead><tr><th>Mã đơn</th><th>Thời gian</th><th>Khách</th><th>Số lượng</th><th>Doanh thu</th><th>Lợi nhuận</th><th>Thanh toán</th><th></th></tr></thead><tbody id="orderTable"></tbody></table></div></div>
+</section>
+
+<section id="page-dashboard" class="page">
+  <div class="dashboard-hero"><div><span class="eyebrow">TỔNG QUAN CỬA HÀNG</span><h2>Xin chào, <span id="dashboardOwner">Chủ cửa hàng</span> 👋</h2><p>Đây là tình hình kinh doanh và vận hành cửa hàng của bạn.</p></div><div class="quick-actions"><button type="button" class="primary" data-quick="sale">＋ Bán hàng</button><button type="button" class="soft" data-quick="products">＋ Thêm hàng</button><button type="button" class="soft" data-quick="inventory">＋ Nhập kho</button></div></div>
+  <div class="period-tabs">
+    <button type="button" class="period active" data-period="day">Hôm nay</button><button type="button" class="period" data-period="week">Tuần</button><button type="button" class="period" data-period="month">Tháng</button><button type="button" class="period" data-period="quarter">Quý</button><button type="button" class="period" data-period="year">Năm</button>
+  </div>
+  <div class="stats">
+    <div class="stat stat-blue"><span>Doanh thu</span><b id="dRevenue">0 ₫</b><small id="dRevenueCompare"></small></div>
+    <div class="stat stat-green"><span>Lợi nhuận</span><b id="dProfit">0 ₫</b><small id="dProfitCompare"></small></div>
+    <div class="stat stat-purple"><span>Số đơn</span><b id="dOrders">0</b><small id="dOrdersCompare"></small></div>
+    <div class="stat stat-orange"><span>Giá trị tồn kho</span><b id="dStock">0 ₫</b><small>theo giá vốn</small></div>
+  </div>
+  <div class="dashboard-grid">
+    <div class="panel chart-panel"><div class="panel-head"><div><h2>Doanh thu 7 ngày gần nhất</h2><span class="muted">Theo ngày, dựa trên các đơn đã thanh toán.</span></div></div><div id="salesChart" class="sales-chart"></div></div>
+    <div class="panel"><div class="panel-head"><div><h2>Sản phẩm bán chạy</h2><span class="muted">Top mặt hàng theo số lượng.</span></div></div><div id="topProducts" class="rank-list"></div></div>
+  </div>
+  <div class="dashboard-grid lower-grid">
+    <div class="panel"><div class="panel-head"><div><h2>Đơn hàng gần đây</h2><span class="muted">5 giao dịch mới nhất.</span></div><button type="button" class="ghost" data-quick="orders">Xem tất cả</button></div><div id="recentOrders" class="recent-orders"></div></div>
+    <div class="panel"><div class="panel-head"><div><h2>Cảnh báo tồn kho</h2><span class="muted">Các mặt hàng cần nhập thêm.</span></div><button type="button" class="ghost" data-quick="inventory">Mở kho</button></div><div id="lowStockList" class="low-stock-list"></div></div>
+  </div>
+</section>
+
+
+<section id="page-suppliers" class="page hidden">
+  <div class="management-hero supplier-hero"><div><span class="eyebrow">ĐỐI TÁC NHẬP HÀNG</span><h2>Nhà cung cấp</h2><p class="muted">Lưu thông tin đầu mối để nhập hàng nhanh và chủ động nguồn hàng.</p></div><div class="management-mark">♜</div></div>
+  <div class="panel management-panel">
+    <div class="panel-head"><div><h2>Danh sách đối tác</h2><p class="muted">Quản lý đầu mối nhập hàng và công nợ.</p></div>
+      <button type="button" class="primary" id="addSupplierBtn">＋ Thêm nhà cung cấp</button></div>
+    <div class="toolbar management-toolbar"><span class="toolbar-label">Đang quản lý</span><input id="supplierSearch" class="search" placeholder="Tìm tên, SĐT, mã nhà cung cấp..."></div>
+    <div id="supplierTable" class="table-wrap"></div>
+  </div>
+</section>
+
+<section id="page-expenses" class="page hidden">
+  <div class="management-hero expense-hero"><div><span class="eyebrow">DÒNG TIỀN CỬA HÀNG</span><h2>Chi phí</h2><p class="muted">Ghi nhận từng khoản chi để biết cửa hàng đang tiêu tiền vào đâu.</p></div><div class="management-mark">₫</div></div>
+  <div class="grid-2">
+    <div class="panel management-panel expense-form-panel">
+      <div class="panel-head"><div><h2>Ghi nhận khoản chi</h2><p class="muted">Điện, nước, vận chuyển, thuê mặt bằng, lương...</p></div><span class="step-badge">01</span></div>
+      <div class="form-grid expense-form-grid">
+        <label>Ngày<input id="expenseDate" type="date"></label>
+        <label>Loại<select id="expenseCategory"><option>Điện nước</option><option>Vận chuyển</option><option>Thuê mặt bằng</option><option>Lương</option><option>Nhập hàng</option><option>Khác</option></select></label>
+        <label>Số tiền<input id="expenseAmount" type="number" min="0" placeholder="0"></label>
+        <label>Ghi chú<input id="expenseNote" placeholder="Ví dụ: tiền điện tháng này"></label>
+      </div>
+      <button type="button" class="primary" id="saveExpenseBtn">＋ Lưu khoản chi</button>
+    </div>
+    <div class="panel management-panel expense-summary-panel">
+      <div class="panel-head"><div><h2>Tổng quan chi tiêu</h2><p class="muted">Theo dữ liệu đang lưu trên máy.</p></div><span class="step-badge coral">02</span></div>
+      <div class="stat-grid expense-stats"><div class="stat-card"><span>Tháng này</span><b id="expenseMonthTotal">0 ₫</b><small>tổng đã ghi nhận</small></div><div class="stat-card"><span>Hôm nay</span><b id="expenseTodayTotal">0 ₫</b><small>trong ngày hiện tại</small></div></div>
+    </div>
+  </div>
+  <div class="panel management-panel expense-history-panel"><div class="panel-head"><div><h2>Lịch sử chi phí</h2><p class="muted">Các khoản chi mới nhất của cửa hàng.</p></div><button type="button" class="ghost" id="exportExpensesBtn">↥ Xuất Excel</button></div><div id="expenseTable" class="table-wrap"></div></div>
+</section>
+
+<section id="page-reports" class="page hidden">
+  <div class="management-hero report-hero"><div><span class="eyebrow">ĐỌC HIỆU QUẢ KINH DOANH</span><h2>Báo cáo kinh doanh</h2><p class="muted">Nhìn nhanh doanh thu, giá vốn và lợi nhuận theo từng giai đoạn.</p></div><div class="management-mark">▥</div></div>
+  <div class="panel management-panel report-panel">
+    <div class="panel-head"><div><h2>Kết quả hoạt động</h2><p class="muted">Doanh thu, giá vốn, lợi nhuận và chi phí.</p></div>
+      <select id="reportPeriod" class="select"><option value="day">Hôm nay</option><option value="week">7 ngày</option><option value="month">Tháng này</option><option value="quarter">Quý này</option><option value="year">Năm nay</option><option value="all">Toàn bộ</option></select>
+    </div>
+    <div class="stat-grid report-stats">
+      <div class="stat-card report-revenue"><span>Doanh thu</span><b id="reportRevenue">0 ₫</b><small>tiền bán hàng</small></div>
+      <div class="stat-card report-cost"><span>Giá vốn</span><b id="reportCost">0 ₫</b><small>giá nhập hàng</small></div>
+      <div class="stat-card report-expense"><span>Chi phí</span><b id="reportExpense">0 ₫</b><small>chi vận hành</small></div>
+      <div class="stat-card report-profit"><span>Lợi nhuận ròng</span><b id="reportProfit">0 ₫</b><small>sau khi trừ chi phí</small></div>
+    </div>
+    <div id="reportDetail" class="report-detail"></div>
+  </div>
+</section>
+
+<section id="page-import" class="page hidden">
+  <div class="panel import-panel"><h2>Nhập hàng từ Excel</h2>
+  <p class="muted">Mỗi dòng là một mặt hàng. Có thể nhập barcode, tên, danh mục, đơn vị ưu tiên và quy cách.</p>
+  <div class="dropbox"><input id="excelFile" type="file" accept=".xlsx,.xls,.csv"><label for="excelFile">📥 Chọn file Excel</label><p>barcode | name | category | preferredUnit | unit1 | unit1Factor | unit1Cost | unit1Price | unit2 | unit2Factor | unit2Cost | unit2Price | unit3 | unit3Factor | unit3Cost | unit3Price | stockBase</p></div>
+  <div id="importPreview"></div><button type="button" class="primary hidden" id="confirmImport">Xác nhận nhập</button> <button type="button" class="ghost" id="downloadTemplate">Tải Excel mẫu</button> <button type="button" class="ghost" id="exportExcel">Xuất Excel</button>
+  </div>
+</section>
+
+<section id="page-notifications" class="page hidden"><div class="panel"><div class="panel-head"><h2>Thông báo</h2><button type="button" class="ghost" id="markNotificationsRead">Đánh dấu đã xem</button></div><div id="notificationList" class="notification-list"></div></div></section><section id="page-settings" class="page hidden">
+  <div class="panel settings-panel"><h2>Cài đặt hộ kinh doanh</h2><div class="setting-card"><h3>Thông tin hiển thị cửa hàng</h3><div class="inline-form"><input id="storeName" placeholder="Tên cửa hàng, ví dụ: LOTTE Mart"><input id="businessName" placeholder="Tên hộ kinh doanh (HKD)"><input id="businessPhone" placeholder="Số điện thoại"><input id="businessAddress" placeholder="Địa chỉ"><input id="taxCode" placeholder="Mã số thuế (MST)"><input id="businessSlogan" placeholder="Slogan, ví dụ: Mua nhanh - Giá tốt mỗi ngày"><button type="button" class="primary" id="saveBusinessBtn">Lưu thông tin</button></div><p class="muted">Tên cửa hàng là thương hiệu hiển thị lớn. Tên HKD và MST là thông tin pháp lý nằm bên dưới trên màn hình khách và hóa đơn.</p></div>
+    <div class="setting-card"><h3>Đơn vị sản phẩm</h3><p class="muted">Bật hoặc tắt các dòng đơn vị hiển thị trong form thêm/sửa sản phẩm của nhân viên.</p><div class="inline-form" style="align-items:center;">
+      <label style="display:flex;align-items:center;gap:8px;min-width:120px;"><input id="unitToggle1" type="checkbox" checked> Đơn vị 1</label>
+      <label style="display:flex;align-items:center;gap:8px;min-width:120px;"><input id="unitToggle2" type="checkbox" checked> Đơn vị 2</label>
+      <label style="display:flex;align-items:center;gap:8px;min-width:120px;"><input id="unitToggle3" type="checkbox" checked> Đơn vị 3</label>
+    </div></div>
+    <div class="setting-card"><h3>Máy quét barcode</h3><p class="muted">Có thể cắm nhiều máy quét USB hoặc ghép nhiều máy Bluetooth ở chế độ HID/Keyboard. Mỗi máy cần gửi mã vạch kèm phím Enter; POS sẽ nhận chung và thêm vào đơn đang bán.</p></div>
+    <div class="setting-card"><h3>Danh mục</h3><div class="inline-form"><input id="categoryInput" placeholder="Tên danh mục mới"><button type="button" class="primary" id="addCategoryBtn">＋ Thêm</button></div><div id="categoryManage" class="tag-list"></div></div>
+    <div class="setting-card"><h3>Tài khoản nhận chuyển khoản</h3><p class="muted">Lưu nhiều tài khoản trên web. Khi thanh toán, nhân viên chỉ cần chọn đúng tài khoản nhận.</p><div class="inline-form"><select id="bankName" aria-label="Chọn ngân hàng"><option value="">Chọn ngân hàng</option></select><input id="bankCode" inputmode="numeric" placeholder="Mã BIN tự điền" readonly><input id="bankNumber" inputmode="numeric" placeholder="Số tài khoản"><input id="bankOwner" placeholder="Tên chủ tài khoản trên tài khoản ngân hàng"><button type="button" class="primary" id="addBankBtn">＋ Lưu tài khoản</button></div><div id="bankManage" class="bank-list"></div><p class="muted">Lưu ý: VietQR tạo mã thanh toán, không tự xác thực tên chủ tài khoản. Hãy nhập đúng tên tài khoản để hiển thị cho khách.</p></div>
+    <div class="setting-card"><h3>Bảo mật tài khoản</h3><div class="inline-form"><input id="currentPassword" type="password" placeholder="Mật khẩu hiện tại"><input id="newPassword" type="password" placeholder="Mật khẩu mới"><input id="confirmPassword" type="password" placeholder="Nhập lại mật khẩu"><button type="button" class="primary" id="changePasswordBtn">Đổi mật khẩu</button></div></div>
+    <div class="setting-card"><h3>Sao lưu dữ liệu</h3><p class="muted">Tải toàn bộ dữ liệu cửa hàng thành một file JSON để lưu trữ hoặc phục hồi.</p><div class="inline-form"><button type="button" class="soft" id="backupDataBtn">⬇ Sao lưu dữ liệu</button><label class="soft file-button">⬆ Phục hồi dữ liệu<input id="restoreDataFile" type="file" accept="application/json" hidden></label><button type="button" class="danger-button" id="resetDemoBtn">Khôi phục dữ liệu mẫu</button></div></div>
+  </div>
+</section>
+</main>
+</div>
+
+<div id="notificationPopover" class="notification-popover hidden"></div><div id="modal" class="modal hidden"><div class="modal-card"><div class="modal-head"><h2 id="modalTitle">Thêm</h2><button type="button" id="closeModal">×</button></div><div id="modalBody"></div></div></div>
+<div id="cameraScanner" class="camera-scanner hidden"><div class="camera-card"><div class="camera-head"><strong>Quét barcode bằng camera</strong><button type="button" class="soft icon-btn" id="closeCameraScanner" aria-label="Đóng camera">×</button></div><div id="cameraViewport"><video id="cameraVideo" autoplay muted playsinline></video></div><div class="camera-guide"></div><p id="cameraStatus" class="muted">Đưa mã vạch vào khung quét.</p></div></div>
+<div id="toast" class="toast"></div>
+<noscript><div style="position:fixed;inset:0;background:#f5f8fd;display:grid;place-items:center;z-index:99999;font-family:Arial"><div style="background:#fff;padding:28px;border-radius:18px;box-shadow:0 10px 40px #0001;text-align:center"><h2>Tạp Hóa POS cần JavaScript</h2><p>Hãy bật JavaScript trong trình duyệt để sử dụng các chức năng bán hàng.</p></div></div></noscript>
+<script>window.__THPOS_BUILD__="5.4.0";window.addEventListener("error",function(e){console.error("THPOS_RUNTIME",e.message,e.filename,e.lineno,e.colno);});</script>
+<script type="module" src="assets/app.js?v=5.4.0"></script>
+</body></html>
