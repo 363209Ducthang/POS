@@ -173,7 +173,7 @@ export async function deleteProductFirebase(id) {
 export function listenProducts(callback) {
   try {
     const uid = getCurrentUserUid();
-    return onSnapshot(userCollection(uid, "products"), s => callback(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+    return live(userCollection(uid, "products"), docsOf, callback);
   } catch (e) {
     return () => {};
   }
@@ -197,10 +197,15 @@ export async function saveOrder(data) {
 export async function commitSale(orderData, items) {
   try {
     const uid = getCurrentUserUid();
+    const debt = Number(orderData.debtAmount) || 0;
+    if (debt > 0 && !orderData.customerId) throw new Error("Ghi nợ cần chọn khách hàng.");
     const result = await runTransaction(db, async tx => {
       const refs = items.map(i => userDoc(uid, "products", i.productId));
       const snaps = [];
       for (const ref of refs) snaps.push(await tx.get(ref));
+      const custRef = debt > 0 ? userDoc(uid, "customers", orderData.customerId) : null;
+      const custSnap = custRef ? await tx.get(custRef) : null;
+      if (custRef && !custSnap.exists()) throw new Error("Không tìm thấy khách hàng để ghi nợ.");
       snaps.forEach((snap, idx) => {
         if (!snap.exists()) throw new Error(`Sản phẩm không tồn tại: ${items[idx].name || items[idx].productId}`);
       });
@@ -220,6 +225,7 @@ export async function commitSale(orderData, items) {
         const same = items.filter(x => x.productId === item.productId).reduce((a, x) => a + (Number(x.baseQty) || 0), 0);
         tx.update(refs[i], { stockBase: (Number(snap.data().stockBase) || 0) - same, updatedAt: serverTimestamp() });
       }
+      if (custRef) tx.update(custRef, { debt: (Number(custSnap.data().debt) || 0) + debt, updatedAt: serverTimestamp() });
       const orderRef = doc(userCollection(uid, "orders"));
       tx.set(orderRef, { ...orderData, items, createdAt: serverTimestamp(), stockCommitted: true });
       return orderRef.id;
@@ -242,6 +248,10 @@ export async function cancelOrder(orderId) {
       const refs = items.map(i => userDoc(uid, "products", i.productId));
       const ps = [];
       for (const r of refs) ps.push(await tx.get(r));
+      if ((Number(o.debtPaid) || 0) > 0) throw new Error("Đơn nợ đã thu một phần, không thể hủy. Hãy xử lý công nợ trước.");
+      const owed = Math.max(0, (Number(o.debtAmount) || 0) - (Number(o.debtPaid) || 0));
+      const cRef = owed > 0 && o.customerId ? userDoc(uid, "customers", o.customerId) : null;
+      const cSnap = cRef ? await tx.get(cRef) : null;
       ps.forEach((psnap, i) => {
         if (!psnap.exists()) throw new Error("Sản phẩm đã bị xóa: " + (items[i].name || ""));
       });
@@ -251,6 +261,7 @@ export async function cancelOrder(orderId) {
         const idx = items.findIndex(i => i.productId === pid);
         tx.update(refs[idx], { stockBase: (Number(ps[idx].data().stockBase) || 0) + qty, updatedAt: serverTimestamp() });
       }
+      if (cSnap?.exists()) tx.update(cRef, { debt: Math.max(0, (Number(cSnap.data().debt) || 0) - owed), updatedAt: serverTimestamp() });
       tx.update(ref, { status: "cancelled", cancelledAt: serverTimestamp(), stockCommitted: false });
     });
     return { success: true };
@@ -260,7 +271,7 @@ export async function cancelOrder(orderId) {
 export function listenOrders(callback) {
   try {
     const uid = getCurrentUserUid();
-    return onSnapshot(query(userCollection(uid, "orders"), orderBy("createdAt", "desc"), limit(500)), s => callback(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+    return live(query(userCollection(uid, "orders"), orderBy("createdAt", "desc"), limit(500)), docsOf, callback);
   } catch (e) {
     return () => {};
   }
@@ -302,7 +313,7 @@ export async function deleteCustomer(id) {
 export function listenCustomers(callback) {
   try {
     const uid = getCurrentUserUid();
-    return onSnapshot(userCollection(uid, "customers"), s => callback(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+    return live(userCollection(uid, "customers"), docsOf, callback);
   } catch (e) {
     return () => {};
   }
@@ -407,3 +418,74 @@ export async function receiveStock(productId, baseQty, cost, unitName = "") {
 
 // ---- EXPORT TẤT CẢ ----
 export { app, auth, db };
+
+// ---- ĐỒNG BỘ REALTIME ----
+let syncHandler = () => {};
+export function onSyncStatus(fn) { syncHandler = typeof fn === "function" ? fn : () => {}; }
+const docsOf = s => s.docs.map(d => ({ id: d.id, ...d.data() }));
+function live(q, map, cb) {
+  return onSnapshot(q, s => { syncHandler({ ok: true }); cb(map(s)); }, err => { console.error("Firestore listener:", err); syncHandler({ ok: false, error: err.message }); });
+}
+export function listenSuppliers(cb) { try { return live(userCollection(getCurrentUserUid(), "suppliers"), docsOf, cb); } catch (e) { return () => {}; } }
+export function listenExpenses(cb) { try { return live(userCollection(getCurrentUserUid(), "expenses"), docsOf, cb); } catch (e) { return () => {}; } }
+export function listenSettings(cb) {
+  try {
+    const uid = getCurrentUserUid();
+    let prev = null;
+    return onSnapshot(userSettingsDoc(uid), { includeMetadataChanges: true }, s => {
+      syncHandler({ ok: true, fromCache: s.metadata.fromCache, pending: s.metadata.hasPendingWrites });
+      const data = s.exists() ? s.data() : {};
+      const { updatedAt, ...rest } = data;
+      const sig = JSON.stringify(rest);
+      if (sig === prev) return;
+      prev = sig;
+      cb(data);
+    }, err => { console.error("Settings listener:", err); syncHandler({ ok: false, error: err.message }); });
+  } catch (e) { return () => {}; }
+}
+
+// ---- CÔNG NỢ / XÁC NHẬN CHUYỂN KHOẢN ----
+export async function collectDebt(customerId, amount, method = "cash", note = "", orderIds = []) {
+  try {
+    const uid = getCurrentUserUid();
+    amount = Math.round(Number(amount) || 0);
+    if (amount <= 0) throw new Error("Số tiền thu phải lớn hơn 0.");
+    await runTransaction(db, async tx => {
+      const cRef = userDoc(uid, "customers", customerId);
+      const cSnap = await tx.get(cRef);
+      if (!cSnap.exists()) throw new Error("Không tìm thấy khách hàng.");
+      const debt = Number(cSnap.data().debt) || 0;
+      if (amount > debt) throw new Error("Số tiền thu lớn hơn công nợ hiện tại.");
+      const oSnaps = [];
+      for (const id of orderIds) oSnaps.push(await tx.get(userDoc(uid, "orders", id)));
+      let left = amount;
+      oSnaps.forEach(s => {
+        if (!s.exists() || left <= 0) return;
+        const o = s.data();
+        if (o.status !== "debt" || o.customerId !== customerId) return;
+        const owe = Math.max(0, (Number(o.debtAmount) || 0) - (Number(o.debtPaid) || 0));
+        const pay = Math.min(owe, left);
+        if (pay <= 0) return;
+        left -= pay;
+        tx.update(s.ref, { debtPaid: (Number(o.debtPaid) || 0) + pay, status: pay >= owe ? "paid" : "debt", ...(pay >= owe ? { debtClearedAt: serverTimestamp() } : {}) });
+      });
+      tx.update(cRef, { debt: debt - amount, updatedAt: serverTimestamp() });
+      tx.set(doc(userCollection(uid, "debtPayments")), { customerId, customerName: cSnap.data().name || "", amount, method, note, orderIds, createdAt: serverTimestamp() });
+    });
+    return { success: true };
+  } catch (e) { return { success: false, error: e.message }; }
+}
+
+export async function confirmTransfer(orderId) {
+  try {
+    const uid = getCurrentUserUid();
+    await runTransaction(db, async tx => {
+      const ref = userDoc(uid, "orders", orderId);
+      const snap = await tx.get(ref);
+      if (!snap.exists()) throw new Error("Không tìm thấy đơn hàng");
+      if (snap.data().status !== "pending_transfer") throw new Error("Đơn không ở trạng thái chờ chuyển khoản");
+      tx.update(ref, { status: "paid", paidAt: serverTimestamp() });
+    });
+    return { success: true };
+  } catch (e) { return { success: false, error: e.message }; }
+}

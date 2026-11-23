@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Tạp Hóa POS V4</title>
+<title>Tạp Hóa POS · Quản lý cửa hàng</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script><script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
-<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/style.css?v=5.6.0">
 </head>
 <body>
 <div id="appView">
@@ -35,7 +35,7 @@
 <main>
 <header class="topbar">
   <div class="title-wrap"><div class="breadcrumb">TẠP HÓA POS <span>/</span> QUẢN LÝ</div><h1 id="pageTitle">Tổng quan</h1><p id="pageSub">Doanh thu, lợi nhuận và hoạt động cửa hàng.</p></div>
-  <div class="top-actions"><button type="button" class="soft screen-btn" id="customerScreenTop">▣ <span>Màn hình 2</span></button><button type="button" class="soft icon-btn" id="notificationBtn" aria-label="Thông báo">♢ <span id="notificationCount" class="notify-badge">0</span></button><button type="button" class="soft icon-btn" id="settingsTopBtn" aria-label="Cài đặt">⚙</button><div class="user-chip"><div class="avatar" id="userAvatar">A</div><div><b id="userNameTop">Chủ cửa hàng</b><small>Hộ kinh doanh</small></div></div><button type="button" class="soft" id="logoutBtn">Đăng xuất</button></div>
+  <div class="top-actions"><span id="syncChip" class="sync-chip wait" title="Trạng thái đồng bộ dữ liệu">● Đang kết nối…</span><button type="button" class="soft screen-btn" id="customerScreenTop">▣ <span>Màn hình 2</span></button><button type="button" class="soft icon-btn" id="notificationBtn" aria-label="Thông báo">♢ <span id="notificationCount" class="notify-badge">0</span></button><button type="button" class="soft icon-btn" id="settingsTopBtn" aria-label="Cài đặt">⚙</button><div class="user-chip"><div class="avatar" id="userAvatar">A</div><div><b id="userNameTop">Chủ cửa hàng</b><small>Hộ kinh doanh</small></div></div><button type="button" class="soft" id="logoutBtn">Đăng xuất</button></div>
 </header>
 
 <section id="page-sale" class="page hidden">
@@ -76,6 +76,7 @@
         <div class="pay-row">
           <button type="button" class="pay active" data-method="cash">💵 Tiền mặt</button>
           <button type="button" class="pay" data-method="transfer">🏦 Chuyển khoản</button>
+          <button type="button" class="pay" data-method="debt">📒 Ghi nợ</button>
         </div>
         <div id="bankBox" class="bank-box hidden">
           <label>Tài khoản nhận
@@ -83,9 +84,10 @@
           </label>
           <div id="qrBox" class="qr-box">
             <div class="qr-image-wrap"><div id="qr"></div></div>
-            <div class="qr-info"><small id="qrText"></small><div id="qrWarning" class="qr-warning"></div><div class="payment-help">Kiểm tra tên người nhận và số tiền trước khi xác nhận giao dịch.</div><button type="button" class="soft qr-open-btn" id="openQrBtn">↗ Mở QR lớn</button></div>
+            <div class="qr-info"><small id="qrText"></small><div id="qrWarning" class="qr-warning"></div><div class="payment-help">Mã QR tự mở ở màn hình khách. Kiểm tra tên người nhận và số tiền trước khi xác nhận giao dịch.</div><button type="button" class="soft qr-open-btn" id="openQrBtn">↗ Mở QR lớn</button></div>
           </div>
         </div>
+        <div id="debtBox" class="debt-box hidden"><div id="debtInfo" class="debt-info"></div><label>Khách trả trước (nếu có)<input id="debtPaidNow" type="number" min="0" value="0"></label></div>
         <button type="button" class="checkout-btn" id="checkoutBtn">THANH TOÁN</button>
       </div>
     </div>
@@ -213,8 +215,8 @@
 
 <section id="page-import" class="page hidden">
   <div class="panel import-panel"><h2>Nhập hàng từ Excel</h2>
-  <p class="muted">Mỗi dòng là một mặt hàng. Có thể nhập barcode, tên, danh mục, đơn vị ưu tiên và quy cách.</p>
-  <div class="dropbox"><input id="excelFile" type="file" accept=".xlsx,.xls,.csv"><label for="excelFile">📥 Chọn file Excel</label><p>barcode | name | category | preferredUnit | unit1 | unit1Factor | unit1Cost | unit1Price | unit2 | unit2Factor | unit2Cost | unit2Price | unit3 | unit3Factor | unit3Cost | unit3Price | stockBase</p></div>
+  <p class="muted">Mỗi dòng là một mặt hàng. Nhập mã vạch, tên, danh mục, đơn vị ưu tiên, giá và tồn kho.</p>
+  <div class="dropbox"><input id="excelFile" type="file" accept=".xlsx,.xls,.csv"><label for="excelFile">📥 Chọn tệp Excel</label><p class="excel-columns">Mã vạch · Tên sản phẩm · Danh mục · Đơn vị ưu tiên · Đơn vị 1 · Hệ số quy đổi 1 · Giá vốn đơn vị 1 · Giá bán đơn vị 1 · Đơn vị 2 · Hệ số quy đổi 2 · Giá vốn đơn vị 2 · Giá bán đơn vị 2 · Đơn vị 3 · Hệ số quy đổi 3 · Giá vốn đơn vị 3 · Giá bán đơn vị 3 · Tồn kho (đơn vị cơ sở) · Ngưỡng cảnh báo tồn</p></div>
   <div id="importPreview"></div><button type="button" class="primary hidden" id="confirmImport">Xác nhận nhập</button> <button type="button" class="ghost" id="downloadTemplate">Tải Excel mẫu</button> <button type="button" class="ghost" id="exportExcel">Xuất Excel</button>
   </div>
 </section>
@@ -240,6 +242,6 @@
 <div id="cameraScanner" class="camera-scanner hidden"><div class="camera-card"><div class="camera-head"><strong>Quét barcode bằng camera</strong><button type="button" class="soft icon-btn" id="closeCameraScanner" aria-label="Đóng camera">×</button></div><div id="cameraViewport"><video id="cameraVideo" autoplay muted playsinline></video></div><div class="camera-guide"></div><p id="cameraStatus" class="muted">Đưa mã vạch vào khung quét.</p></div></div>
 <div id="toast" class="toast"></div>
 <noscript><div style="position:fixed;inset:0;background:#f5f8fd;display:grid;place-items:center;z-index:99999;font-family:Arial"><div style="background:#fff;padding:28px;border-radius:18px;box-shadow:0 10px 40px #0001;text-align:center"><h2>Tạp Hóa POS cần JavaScript</h2><p>Hãy bật JavaScript trong trình duyệt để sử dụng các chức năng bán hàng.</p></div></div></noscript>
-<script>window.__THPOS_BUILD__="5.4.0";window.addEventListener("error",function(e){console.error("THPOS_RUNTIME",e.message,e.filename,e.lineno,e.colno);});</script>
-<script type="module" src="assets/app.js?v=5.4.0"></script>
+<script>window.__THPOS_BUILD__="5.6.0";window.addEventListener("error",function(e){console.error("THPOS_RUNTIME",e.message,e.filename,e.lineno,e.colno);});</script>
+<script type="module" src="assets/app.js?v=5.6.0"></script>
 </body></html>

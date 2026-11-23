@@ -12,7 +12,8 @@ import {
   listenProducts, listenOrders, listenCustomers,
   addSupplier, updateSupplier, deleteSupplier, getSuppliers,
   addExpense, deleteExpense, getExpenses,
-  cancelOrder, getSettings, saveSettings
+  cancelOrder, getSettings, saveSettings,
+  confirmTransfer, collectDebt, listenSuppliers, listenExpenses, listenSettings, onSyncStatus
 } from "../firebase-config.js";
 
 const $ = id => document.getElementById(id);
@@ -45,8 +46,117 @@ const state = {
   storeSettings: {},
   productByBarcode: new Map(),
   unitCache: new WeakMap(),
-  qrKey: ""
+  orderDrafts: [{ id: "draft-1", label: "Đơn 1", cart: [], customerId: "", payment: "cash", discount: 0, debtPaidNow: 0, payRef: "" }],
+  activeDraftId: "draft-1",
+  nextDraftNumber: 2,
+  checkoutInProgress: false,
+  qrKey: "",
+  payRef: "",
+  flash: null,
+  selectedCustomer: "",
+  sync: { ok: true, fromCache: undefined, pending: false, last: 0 }
 };
+
+function activeDraft() {
+  return state.orderDrafts.find(draft => draft.id === state.activeDraftId) || null;
+}
+
+function saveActiveDraft() {
+  const draft = activeDraft();
+  if (!draft) return;
+  draft.cart = state.cart;
+  draft.payment = state.payment;
+  draft.customerId = $("customerSelect")?.value || "";
+  draft.discount = Math.max(0, Number($("discount")?.value) || 0);
+  draft.debtPaidNow = Math.max(0, Number($("debtPaidNow")?.value) || 0);
+  draft.payRef = state.payRef || "";
+}
+
+function makeOrderDraft() {
+  const number = state.nextDraftNumber++;
+  return { id: `draft-${number}`, label: `Đơn ${number}`, cart: [], customerId: "", payment: "cash", discount: 0, debtPaidNow: 0, payRef: "" };
+}
+
+function renderOrderDrafts() {
+  const box = $("orderTabs");
+  if (!box) return;
+  box.innerHTML = state.orderDrafts.map(draft => {
+    const count = draft.cart.reduce((total, item) => total + Number(item.qty || 0), 0);
+    return `<div class="order-tab-entry ${draft.id === state.activeDraftId ? "active" : ""}">
+      <button type="button" class="order-tab ${draft.id === state.activeDraftId ? "active" : ""}" data-order-draft="${esc(draft.id)}" aria-current="${draft.id === state.activeDraftId ? "page" : "false"}"><span>${esc(draft.label)}</span><small>${count} món</small></button>
+      <button type="button" class="tab-close" data-close-order="${esc(draft.id)}" aria-label="Xóa ${esc(draft.label)}" title="Xóa đơn">×</button>
+    </div>`;
+  }).join("") + '<button type="button" class="new-tab" id="newOrderBtn">＋ Đơn mới</button>';
+}
+
+function loadOrderDraft(draft) {
+  state.activeDraftId = draft.id;
+  state.cart = draft.cart;
+  state.payment = draft.payment || "cash";
+  state.payRef = draft.payRef || "";
+  if ($("customerSelect")) $("customerSelect").value = draft.customerId || "";
+  if ($("discount")) $("discount").value = draft.discount || 0;
+  if ($("debtPaidNow")) $("debtPaidNow").value = draft.debtPaidNow || 0;
+  document.querySelectorAll(".pay").forEach(button => button.classList.toggle("active", button.dataset.method === state.payment));
+  state.qrKey = "";
+  renderOrderDrafts();
+  renderCart();
+}
+
+function createOrderDraft() {
+  if (state.checkoutInProgress) return;
+  saveActiveDraft();
+  state.flash = null;
+  const draft = makeOrderDraft();
+  state.orderDrafts.push(draft);
+  loadOrderDraft(draft);
+  $("barcodeInput")?.focus();
+}
+
+function closeOrderDraft(id) {
+  if (state.checkoutInProgress) return;
+  const draft = state.orderDrafts.find(item => item.id === id);
+  if (!draft) return;
+  const hasItems = draft.cart.length > 0;
+  if (hasItems && !confirm(`Xóa ${draft.label} và toàn bộ mặt hàng trong đơn?`)) return;
+  saveActiveDraft();
+  state.orderDrafts = state.orderDrafts.filter(item => item.id !== id);
+  if (!state.orderDrafts.length) state.orderDrafts.push(makeOrderDraft());
+  if (state.activeDraftId === id) loadOrderDraft(state.orderDrafts[0]);
+  else renderOrderDrafts();
+}
+
+function finishActiveOrderDraft(finishedId = state.activeDraftId) {
+  const wasActive = finishedId === state.activeDraftId;
+  state.orderDrafts = state.orderDrafts.filter(draft => draft.id !== finishedId);
+  if (!state.orderDrafts.length) state.orderDrafts.push(makeOrderDraft());
+  if (wasActive) loadOrderDraft(state.orderDrafts[0]);
+  else renderOrderDrafts();
+}
+
+function clearActiveOrder() {
+  if (state.checkoutInProgress) return;
+  if (state.cart.length && !confirm("Xóa toàn bộ mặt hàng trong đơn hiện tại?")) return;
+  state.flash = null;
+  state.cart = [];
+  state.payment = "cash";
+  state.payRef = "";
+  state.qrKey = "";
+  if ($("customerSelect")) $("customerSelect").value = "";
+  if ($("discount")) $("discount").value = 0;
+  if ($("debtPaidNow")) $("debtPaidNow").value = 0;
+  document.querySelectorAll(".pay").forEach(button => button.classList.toggle("active", button.dataset.method === "cash"));
+  const draft = activeDraft();
+  if (draft) { draft.cart = state.cart; draft.payment = "cash"; draft.customerId = ""; draft.discount = 0; draft.debtPaidNow = 0; draft.payRef = ""; }
+  renderCart();
+}
+
+function reservedBaseQty(productId, except = null) {
+  return state.orderDrafts.reduce((total, draft) => total + draft.cart.reduce((sum, item, index) => {
+    if (item.productId !== productId || (draft.id === except?.draftId && index === except?.index)) return sum;
+    return sum + (Number(item.baseQty) || 0);
+  }, 0), 0);
+}
 
 function getDefaultUnitConfig() {
   return { unit1: true, unit2: true, unit3: true };
@@ -59,6 +169,26 @@ function getVisibleUnitSlots() {
     { key: "unit2", enabled: cfg.unit2 !== false },
     { key: "unit3", enabled: cfg.unit3 !== false }
   ];
+}
+
+// ----- V5.5: HELPER DÙNG CHUNG (trạng thái đơn, công nợ, đồng bộ) -----
+const isSale = o => ["paid", "completed", "debt"].includes(o.status);
+const payLabel = o => ({ cash: "Tiền mặt", transfer: "Chuyển khoản", debt: "Ghi nợ" }[o.paymentMethod] || "Tiền mặt");
+const owedOf = o => Math.max(0, (Number(o.debtAmount) || 0) - (Number(o.debtPaid) || 0));
+function statusLabel(o) {
+  if (o.status === "cancelled") return "Đã hủy";
+  if (o.status === "pending_transfer") return "Chờ chuyển khoản";
+  if (o.status === "debt") return `Còn nợ ${money(owedOf(o))}`;
+  return o.debtAmount ? "Đã thu đủ nợ" : "Đã thanh toán";
+}
+function customerLabel(o) { return o.customerName || state.customers.find(c => c.id === o.customerId)?.name || (o.customerId ? "Khách đã xóa" : "Khách lẻ"); }
+function paintSync() {
+  const el = $("syncChip");
+  if (!el) return;
+  const off = !navigator.onLine || state.sync.ok === false;
+  const wait = !off && (state.sync.pending || state.sync.fromCache === true);
+  el.className = "sync-chip " + (off ? "off" : wait ? "wait" : "on");
+  el.textContent = off ? "● Mất kết nối – đang chờ mạng" : wait ? "● Đang đồng bộ…" : "● Đã đồng bộ" + (state.sync.last ? " · " + new Date(state.sync.last).toLocaleTimeString("vi-VN") : "");
 }
 
 // ----- PHẦN 2: TOAST, PAGE NAVIGATION, ERROR HANDLING -----
@@ -105,6 +235,9 @@ function setPage(page) {
   if (page === "reports") renderReportsV53();
   if (page === "notifications") renderNotificationsV53();
   if (page === "settings") renderSettingsV53();
+  if (page === "customers") { renderCustomers(); renderCustomerDetail(); }
+  if (page === "suppliers") renderSuppliers();
+  if (page === "expenses") renderExpenses();
 }
 window.page = setPage;
 
@@ -169,10 +302,12 @@ function preferredUnit(p) { return unitsOf(p).find(u => u.name === p.preferredUn
 
 // ----- PHẦN 4: CART LOGIC -----
 function addCart(p, unitName = null, qty = 1) {
+  if (state.checkoutInProgress) return false;
+  state.flash = null;
   const u = unitsOf(p).find(x => x.name === unitName) || preferredUnit(p);
   const base = Number(qty) * u.factor;
   const existing = state.cart.find(x => x.productId === p.id && x.unit === u.name);
-  const already = state.cart.filter(x => x.productId === p.id).reduce((a, x) => a + x.baseQty, 0);
+  const already = reservedBaseQty(p.id);
   if ((Number(p.stockBase) || 0) < already + base) {
     toast(`Không đủ tồn kho ${p.name}. Còn ${p.stockBase || 0} đơn vị cơ sở.`, false);
     return false;
@@ -191,7 +326,7 @@ function changeQty(i, d) {
   const p = state.products.find(p => p.id === x.productId);
   const n = x.qty + d;
   if (n <= 0) { removeCart(i); return; }
-  const other = state.cart.filter((y, j) => j !== i && y.productId === x.productId).reduce((a, y) => a + y.baseQty, 0);
+  const other = reservedBaseQty(x.productId, { draftId: state.activeDraftId, index: i });
   if (other + n * x.factor > (Number(p?.stockBase) || 0)) { toast("Không đủ tồn kho.", false); return; }
   x.qty = n;
   x.baseQty = n * x.factor;
@@ -203,7 +338,7 @@ function changeUnit(i, name) {
   const p = state.products.find(p => p.id === x.productId);
   const u = unitsOf(p).find(u => u.name === name);
   if (!u) return;
-  const other = state.cart.filter((y, j) => j !== i && y.productId === x.productId).reduce((a, y) => a + y.baseQty, 0);
+  const other = reservedBaseQty(x.productId, { draftId: state.activeDraftId, index: i });
   if (other + x.qty * u.factor > (Number(p.stockBase) || 0)) { toast("Không đủ tồn kho cho đơn vị này.", false); return; }
   x.unit = u.name;
   x.factor = u.factor;
@@ -214,6 +349,8 @@ function changeUnit(i, name) {
 }
 
 function renderCart() {
+  saveActiveDraft();
+  renderOrderDrafts();
   const box = $("cart");
   if (!box) return;
   if (!state.cart.length) { box.innerHTML = '<div style="padding:50px;text-align:center;color:#98a2b3">Quét mã sản phẩm để bắt đầu</div>'; } else {
@@ -238,12 +375,14 @@ function renderCart() {
   const total = Math.max(0, sub - discount);
   $("subtotal").textContent = money(sub);
   $("total").textContent = money(total);
-  updateCustomerScreen(total);
   renderQR(total);
+  renderDebtBox(total);
+  updateCustomerScreen(total);
 }
 
 // ----- PHẦN 5: CART EVENTS -----
 $("cart")?.addEventListener("click", e => {
+  if (state.checkoutInProgress) return;
   const b = e.target.closest("button[data-act]");
   if (!b) return;
   const i = +b.dataset.i;
@@ -253,6 +392,7 @@ $("cart")?.addEventListener("click", e => {
 });
 
 $("cart")?.addEventListener("change", e => { 
+  if (state.checkoutInProgress) return;
   if (e.target.dataset.act === "unit") changeUnit(+e.target.dataset.i, e.target.value); 
 });
 
@@ -261,9 +401,27 @@ if (discountInput) {
   discountInput.addEventListener("input", renderCart);
   discountInput.addEventListener("change", renderCart);
 }
+$("customerSelect")?.addEventListener("change", renderCart);
+$("debtPaidNow")?.addEventListener("input", renderCart);
+
+$("orderTabs")?.addEventListener("click", e => {
+  if (state.checkoutInProgress) return;
+  const close = e.target.closest("[data-close-order]");
+  if (close) { closeOrderDraft(close.dataset.closeOrder); return; }
+  const tab = e.target.closest("[data-order-draft]");
+  if (tab && tab.dataset.orderDraft !== state.activeDraftId) {
+    saveActiveDraft();
+    state.flash = null;
+    const draft = state.orderDrafts.find(item => item.id === tab.dataset.orderDraft);
+    if (draft) loadOrderDraft(draft);
+    return;
+  }
+  if (e.target.closest("#newOrderBtn")) createOrderDraft();
+});
 
 // ----- PHẦN 6: SCANNER LOGIC -----
 function scanSale(raw) {
+  if (state.checkoutInProgress) { toast("Đang lưu đơn hàng. Vui lòng chờ.", false); return; }
   const code = normalizeBarcode(raw);
   if (!code) return;
   const p = findProduct(code);
@@ -522,7 +680,7 @@ function renderProducts() {
       <td>${money(u.cost)}</td>
       <td>${Number(p.stockBase) || 0}</td>
       <td>${p.active === false ? '<span class="warning">Ngừng bán</span>' : '<span class="ok">Đang bán</span>'}</td>
-      <td><button class="pencil" data-edit="${p.id}">✎</button> <button class="delete-btn" data-delete="${p.id}">×</button></td>
+      <td><button class="pencil" data-edit="${p.id}">✎</button> <button class="soft" data-print-label="${p.id}" title="In tem barcode">🖨</button> <button class="delete-btn" data-delete="${p.id}">×</button></td>
     </tr>`;
   }).join("");
 }
@@ -530,6 +688,12 @@ $("productsSearch")?.addEventListener("input", e => { state.productFilter = e.ta
 $("productsTable")?.addEventListener("click", e => {
   const ed = e.target.closest("[data-edit]");
   const del = e.target.closest("[data-delete]");
+  const pl = e.target.closest("[data-print-label]");
+  if (pl) {
+    const p = state.products.find(x => x.id === pl.dataset.printLabel);
+    if (p) { const q = prompt(`In bao nhiêu tem cho "${p.name}"?`, "1"); if (q !== null) printBarcodeLabels({ barcode: p.barcode, name: p.name, price: preferredUnit(p).price }, q, labelCfg()); }
+    return;
+  }
   if (ed) openProductModal(state.products.find(p => p.id === ed.dataset.edit));
   if (del) {
     e.preventDefault();
@@ -545,7 +709,8 @@ async function deleteProduct(id) {
   const r = await deleteProductFirebase(id);
   if (r.success) {
     state.products = state.products.filter(product => product.id !== id);
-    state.cart = state.cart.filter(item => item.productId !== id);
+    state.orderDrafts.forEach(draft => { draft.cart = draft.cart.filter(item => item.productId !== id); });
+    state.cart = activeDraft()?.cart || [];
     rebuildProductIndex(state.products);
     try { localStorage.setItem(productsCacheKey(), JSON.stringify(state.products)); } catch (_) { }
     renderProducts();
@@ -598,6 +763,12 @@ function openProductModal(product = {}) {
     </div>
     <div class="form-grid">
       <label class="full">Barcode<div class="barcode-entry"><input id="mBarcode" value="${esc(product.barcode || "")}" autofocus><button type="button" class="soft scan-button" id="scanProductBtn">▣ Quét mã</button><button type="button" class="soft scan-button" id="generateBarcodeBtn">＋ Tạo mã</button></div><div id="barcodePreview" class="barcode-preview"></div></label>
+      <div class="full barcode-print-row">
+        <label>Số tem in<input id="mPrintQty" type="number" min="1" max="500" value="1"></label>
+        <label>Khổ tem<select id="mPrintSize"><option value="50x30">50 × 30 mm</option><option value="40x25">40 × 25 mm</option><option value="a4">Giấy A4 (3 cột)</option></select></label>
+        <label>Nội dung tem<select id="mPrintShow"><option value="full">Tên + mã + giá</option><option value="name">Tên + mã</option><option value="code">Chỉ mã vạch</option></select></label>
+        <button type="button" class="soft" id="printBarcodeBtn">🖨 In tem</button>
+      </div>
       <label class="full">Tên sản phẩm<input id="mName" value="${esc(product.name || "")}" placeholder="Ví dụ: Coca-Cola 330ml"></label>
       <label>Danh mục
         <input id="mCategory" list="productCategoryList" value="${esc(product.category || "")}" placeholder="Nhập mới hoặc chọn danh mục">
@@ -645,11 +816,19 @@ function openProductModal(product = {}) {
     preview.innerHTML = "<svg id='generatedBarcode'></svg>";
     const value = $("mBarcode").value.trim();
     if (!value) return;
-    try { window.JsBarcode("#generatedBarcode", value, { format: "auto", displayValue: true, height: 48, margin: 4 }); } catch (_) { preview.textContent = "Barcode chưa hợp lệ."; }
+    try { window.JsBarcode("#generatedBarcode", value, { format: barcodeFormat(value), displayValue: true, height: 48, margin: 4 }); } catch (_) { preview.textContent = "Không thể tạo mã vạch. Hãy kiểm tra lại nội dung."; }
   };
   $("mBarcode").addEventListener("input", drawBarcode);
   $("generateBarcodeBtn").onclick = () => { $("mBarcode").value = createEan13(); drawBarcode(); };
   drawBarcode();
+  const lc = labelCfg();
+  $("mPrintSize").value = lc.size;
+  $("mPrintShow").value = lc.show;
+  $("printBarcodeBtn").onclick = () => {
+    const slot = ($("mPref").value || "unit1").replace("unit", "");
+    const price = Number($("mP" + slot)?.value ?? $("mP1")?.value) || 0;
+    printBarcodeLabels({ barcode: $("mBarcode").value, name: $("mName").value.trim(), price }, $("mPrintQty").value, { size: $("mPrintSize").value, show: $("mPrintShow").value });
+  };
 
   $("saveProductModal").onclick = async () => {
     const barcode = normalizeBarcode($("mBarcode").value);
@@ -680,47 +859,97 @@ function openProductModal(product = {}) {
 }
 $("closeModal")?.addEventListener("click", () => $("modal").classList.add("hidden"));
 
+// ----- PHẦN 10B: IN TEM BARCODE -----
+const LABEL_SIZES = { "50x30": { w: 50, h: 30, name: 9, price: 11 }, "40x25": { w: 40, h: 25, name: 8, price: 10 }, a4: { w: 0, h: 34, name: 9, price: 11 } };
+function hasValidBarcodeCheckDigit(code) {
+  if (!/^\d+$/.test(code) || ![8, 12, 13].includes(code.length)) return false;
+  const digits = code.split("").map(Number);
+  const sum = digits.slice(0, -1).reduce((total, digit, index) => total + digit * ((code.length - 1 - index) % 2 ? 3 : 1), 0);
+  return (10 - sum % 10) % 10 === digits[digits.length - 1];
+}
+function barcodeFormat(code) {
+  if (code.length === 13 && hasValidBarcodeCheckDigit(code)) return "EAN13";
+  if (code.length === 12 && hasValidBarcodeCheckDigit(code)) return "UPC";
+  if (code.length === 8 && hasValidBarcodeCheckDigit(code)) return "EAN8";
+  return "CODE128";
+}
+function labelCfg() {
+  try {
+    const c = JSON.parse(localStorage.getItem("thpos_label_cfg") || "{}");
+    return { size: LABEL_SIZES[c.size] ? c.size : "50x30", show: ["full", "name", "code"].includes(c.show) ? c.show : "full" };
+  } catch (_) { return { size: "50x30", show: "full" }; }
+}
+function printBarcodeLabels(item, qty, opts = {}) {
+  const code = normalizeBarcode(item.barcode);
+  if (!code) { toast("Chưa có barcode để in.", false); return; }
+  if (!window.JsBarcode) { toast("Chưa tải được thư viện barcode. Hãy kiểm tra Internet.", false); return; }
+  let n = Math.floor(Number(qty)) || 0;
+  if (n < 1) { toast("Số tem phải lớn hơn 0.", false); return; }
+  if (n > 500) { n = 500; toast("Mỗi lần in tối đa 500 tem.", false); }
+  const size = LABEL_SIZES[opts.size] ? opts.size : "50x30", show = opts.show || "full", S = LABEL_SIZES[size];
+  const holder = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  try { window.JsBarcode(holder, code, { format: barcodeFormat(code), displayValue: true, width: 2, height: 50, margin: 0, fontSize: 14 }); } catch (_) { toast("Không thể tạo mã vạch. Hãy kiểm tra nội dung mã.", false); return; }
+  try { localStorage.setItem("thpos_label_cfg", JSON.stringify({ size, show })); } catch (_) { }
+  const one = `<div class="l">${show !== "code" ? `<div class="n">${esc(item.name || "")}</div>` : ""}<div class="bc">${holder.outerHTML}</div>${show === "full" && Number(item.price) > 0 ? `<div class="p">${money(item.price)}</div>` : ""}</div>`;
+  const page = size === "a4"
+    ? "@page{size:A4;margin:8mm}.sheet{display:flex;flex-wrap:wrap}.l{width:33.333%;height:34mm;border:.2mm dashed #c4c4c4}"
+    : `@page{size:${S.w}mm ${S.h}mm;margin:0}.l{width:${S.w}mm;height:${S.h}mm;page-break-after:always;break-after:page}.l:last-child{page-break-after:auto;break-after:auto}`;
+  const w = window.open("", "_blank", "width=520,height=680");
+  if (!w) { toast("Trình duyệt đang chặn cửa sổ in. Hãy cho phép popup.", false); return; }
+  w.document.write(`<html><head><meta charset="utf-8"><title>In tem ${esc(code)}</title><style>*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;color:#000}${page}.l{padding:1.5mm 2mm;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;break-inside:avoid}.n{font-size:${S.name}px;font-weight:700;text-align:center;line-height:1.15;max-height:2.3em;overflow:hidden;width:100%}.bc{flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center}.bc svg{display:block;width:auto;height:auto;max-width:100%;max-height:100%}.p{font-size:${S.price}px;font-weight:800}@media screen{body{background:#eee;padding:10px}.l{background:#fff;margin:0 0 6px}}</style></head><body><div class="sheet">${one.repeat(n)}</div></body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 200);
+}
+
 // ----- PHẦN 11: CHECKOUT, QR, PRINT RECEIPT -----
 async function checkout() {
+  if (state.checkoutInProgress) return;
   if (!state.cart.length) { toast("Chưa có sản phẩm trong hóa đơn.", false); return; }
   const sub = state.cart.reduce((a, x) => a + x.qty * x.price, 0);
   const discount = Math.min(sub, Math.max(0, Number($("discount").value) || 0));
   const total = sub - discount;
+  const isDebt = state.payment === "debt";
+  const dInfo = debtInfo(total);
+  if (isDebt && !dInfo.customer) { toast("Ghi nợ cần chọn khách hàng (không dùng Khách lẻ).", false); return; }
+  if (isDebt && dInfo.add <= 0) { toast("Khách đã trả đủ — hãy chọn Tiền mặt hoặc Chuyển khoản.", false); return; }
   const btn = $("checkoutBtn");
   btn.disabled = true;
   btn.textContent = "ĐANG XỬ LÝ...";
   const customer = $("customerSelect")?.value || "";
-  
-  // Generate QR data for transfer payment
-  let qrData = "";
-  if (state.payment === "transfer") {
-    const store = state.storeSettings || {};
-    const bankName = localStorage.getItem("thpos_bank_name") || store.bankName || "";
-    const bank = { id: "legacy", name: bankName, code: localStorage.getItem("thpos_bank_code") || store.bankCode || bankBinFromName(bankName), number: localStorage.getItem("thpos_bank_number") || store.bankNumber || "", owner: localStorage.getItem("thpos_bank_owner") || store.bankOwner || "" };
-    if (bank.code && bank.number) {
-      qrData = vietQrUrl(bank, total);
-    }
-  }
-  
+  const bank = activeBank();
+  const qrData = state.payment === "transfer" && bank.code && bank.number ? vietQrUrl(bank, total) : "";
+
   const order = {
     machineId, stateMachine: machineId,
     paymentMethod: state.payment,
-    status: state.payment === "transfer" ? "pending_transfer" : "paid",
+    status: isDebt ? "debt" : state.payment === "transfer" ? "pending_transfer" : "paid",
     subtotal: sub, discount, total,
     customerId: customer || null,
     operatorId: auth.currentUser?.uid || null,
     operatorName: auth.currentUser?.displayName || auth.currentUser?.email || "",
-    qrData: qrData
+    qrData: qrData,
+    payRef: state.payment === "transfer" ? payRef() : "",
+    customerName: dInfo.customer?.name || "",
+    ...(isDebt ? { debtAmount: dInfo.add, debtPaid: 0, paidAmount: dInfo.paidNow } : {})
   };
-  const r = await commitSale(order, state.cart.map(x => ({ ...x })));
+  const checkoutDraftId = state.activeDraftId;
+  const soldItems = state.cart.map(item => ({ ...item }));
+  state.checkoutInProgress = true;
+  let r;
+  try { r = await commitSale(order, soldItems); }
+  catch (error) { r = { success: false, error: error?.message || "Không thể lưu đơn hàng." }; }
+  state.checkoutInProgress = false;
   btn.disabled = false;
   btn.textContent = "THANH TOÁN";
   if (!r.success) { toast(r.error, false); return; }
-  toast(`Thanh toán thành công · ${money(total)}`);
-  printReceipt({ ...order, id: r.id, items: state.cart.map(x => ({ ...x })) });
-  state.cart = [];
-  $("discount").value = 0;
-  renderCart();
+  toast(isDebt ? `Đã ghi nợ ${money(dInfo.add)} · ${dInfo.name}` : `Thanh toán thành công · ${money(total)}`);
+  printReceipt({ ...order, id: r.id, items: soldItems });
+  state.flash = { type: isDebt ? "debt" : "paid", method: state.payment, total, debt: isDebt ? { name: dInfo.name, add: dInfo.add, after: dInfo.after } : null, until: Date.now() + 6000 };
+  state.qrKey = "";
+  if ($("debtPaidNow")) $("debtPaidNow").value = 0;
+  finishActiveOrderDraft(checkoutDraftId);
+  setTimeout(renderCart, 6200);
 }
 $("checkoutBtn")?.addEventListener("click", checkout);
 
@@ -729,12 +958,15 @@ function attachPaymentListeners() {
   const payButtons = document.querySelectorAll(".pay");
   if (payButtons.length === 0) return; // Elements might not be ready yet
   payButtons.forEach(b => b.addEventListener("click", () => {
+    if (state.checkoutInProgress) return;
     document.querySelectorAll(".pay").forEach(x => x.classList.remove("active"));
     b.classList.add("active");
     const method = b.dataset.method;
     if (method) {
       state.payment = method;
+      state.flash = null;
       renderCart();
+      if (method === "transfer") openCustomerScreen();
     }
   }));
 }
@@ -746,18 +978,45 @@ if (document.readyState === "loading") {
   attachPaymentListeners();
 }
 
+function activeBank() {
+  const st = state.storeSettings || {};
+  const accounts = st.bankAccounts || [];
+  const id = $("bankSelect")?.value || localStorage.getItem("thpos_active_bank") || accounts[0]?.id || "";
+  const sel = accounts.find(x => x.id === id) || accounts[0];
+  if (sel) return sel;
+  const name = localStorage.getItem("thpos_bank_name") || st.bankName || "";
+  return { id: "legacy", name, code: localStorage.getItem("thpos_bank_code") || st.bankCode || bankBinFromName(name), number: localStorage.getItem("thpos_bank_number") || st.bankNumber || "", owner: localStorage.getItem("thpos_bank_owner") || st.bankOwner || "" };
+}
+// Nội dung chuyển khoản ổn định cho mỗi lần bán (QR không đổi khi render lại, khớp với đơn đã lưu)
+function payRef() { return state.payRef || (state.payRef = "TH" + Date.now().toString(36).toUpperCase().slice(-6) + Math.random().toString(36).slice(2, 4).toUpperCase()); }
+
+function currentCustomer() { const id = $("customerSelect")?.value; return id ? state.customers.find(c => c.id === id) || null : null; }
+function debtInfo(total) {
+  const c = currentCustomer();
+  const paidNow = Math.min(total, Math.max(0, Number($("debtPaidNow")?.value) || 0));
+  const previous = Number(c?.debt) || 0;
+  const add = Math.max(0, total - paidNow);
+  return { customer: c, name: c?.name || "", previous, paidNow, add, after: previous + add };
+}
+function renderDebtBox(total) {
+  const box = $("debtBox");
+  if (!box) return;
+  box.classList.toggle("hidden", state.payment !== "debt");
+  if (state.payment !== "debt") return;
+  const d = debtInfo(total);
+  $("debtInfo").innerHTML = d.customer
+    ? `<div><span>Khách hàng</span><b>${esc(d.name)}</b></div><div><span>Nợ cũ</span><b>${money(d.previous)}</b></div><div><span>Ghi nợ đơn này</span><b class="danger">${money(d.add)}</b></div><div><span>Tổng nợ sau đơn</span><b>${money(d.after)}</b></div>`
+    : '<div class="debt-warn">Chọn khách hàng (hoặc bấm ＋ Khách) để ghi nợ. Khách lẻ không thể ghi nợ.</div>';
+}
+
 function renderQR(total) {
   const box = $("bankBox");
   if (!box) return;
   box.classList.toggle("hidden", state.payment !== "transfer");
   if (state.payment !== "transfer") return;
-  const accounts = state.storeSettings?.bankAccounts || [];
-  const selectedId = $("bankSelect")?.value || localStorage.getItem("thpos_active_bank") || accounts[0]?.id || "";
-  const selected = accounts.find(account => account.id === selectedId) || accounts[0];
-  const legacyName = localStorage.getItem("thpos_bank_name") || state.storeSettings?.bankName || "";
-  const bank = selected || { id: "legacy", name: legacyName, code: localStorage.getItem("thpos_bank_code") || state.storeSettings?.bankCode || bankBinFromName(legacyName), number: localStorage.getItem("thpos_bank_number") || state.storeSettings?.bankNumber || "", owner: localStorage.getItem("thpos_bank_owner") || state.storeSettings?.bankOwner || "" };
+  const bank = activeBank();
   const qr = $("qr");
-  const qrKey = `${state.payment}|${bank.id}|${bank.code}|${bank.number}|${Math.round(Number(total) || 0)}`;
+  const qrKey = `${bank.id}|${bank.code}|${bank.number}|${Math.round(Number(total) || 0)}|${payRef()}`;
   if (state.qrKey === qrKey) return;
   state.qrKey = qrKey;
   if (qr) {
@@ -769,7 +1028,7 @@ function renderQR(total) {
       qr.appendChild(img);
     }
   }
-  $("qrText").textContent = bank.code && bank.number ? `${bank.name} · ${bank.number} · ${bank.owner}` : "Hãy lưu tài khoản nhận trong Cài đặt";
+  $("qrText").textContent = bank.code && bank.number ? `${bank.name} · ${bank.number} · ${bank.owner} · Nội dung: ${payRef()}` : "Hãy lưu tài khoản nhận trong Cài đặt";
 }
 
 function renderBankOptions(selected = "") {
@@ -800,10 +1059,9 @@ $("bankName")?.addEventListener("change", e => {
 });
 $("bankSelect")?.addEventListener("change", e => { localStorage.setItem("thpos_active_bank", e.target.value); state.qrKey = ""; renderCart(); });
 
-function vietQrUrl(bank, total) {
+function vietQrUrl(bank, total, template = "compact2") {
   const amount = Math.max(0, Math.round(Number(total) || 0));
-  const addInfo = `POS ${Date.now()}`;
-  return `https://img.vietqr.io/image/${encodeURIComponent(bank.code)}-${encodeURIComponent(bank.number)}-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(addInfo)}&accountName=${encodeURIComponent(bank.owner || "")}`;
+  return `https://img.vietqr.io/image/${encodeURIComponent(bank.code)}-${encodeURIComponent(bank.number)}-${template}.png?amount=${amount}&addInfo=${encodeURIComponent(payRef())}&accountName=${encodeURIComponent(bank.owner || "")}`;
 }
 
 function bankBinFromName(name) {
@@ -822,28 +1080,65 @@ function printReceipt(order) {
   const w = window.open("", "_blank", "width=420,height=700");
   if (!w) return;
   const store = state.storeSettings || {};
-  w.document.write(`<html><head><title>Hóa đơn ${esc(order.id)}</title><style>@page{size:80mm auto;margin:0}*{box-sizing:border-box}html{width:100%;display:flex;justify-content:center}body{font-family:Arial,sans-serif;width:72mm;margin:0 auto;padding:4mm 0;color:#172033;font-size:11px}.brand{text-align:center;border-bottom:1px solid #172033;padding-bottom:8px;margin-bottom:8px}.brand h2{margin:0 0 3px;font-size:21px;letter-spacing:.3px;text-transform:uppercase}.brand p{margin:2px 0;font-size:9px;color:#414b5c}.legal{font-size:10px;font-weight:700}.meta{font-size:9px;line-height:1.5;margin-bottom:6px}.meta b{font-size:10px}table{width:100%;border-collapse:collapse;table-layout:fixed}th{font-size:9px;text-align:left;border-bottom:1px solid #172033;padding:5px 0}th:nth-child(1){width:48%}th:nth-child(2){width:16%;text-align:center}th:nth-child(3){width:36%;text-align:right}td{padding:6px 0;border-bottom:1px dashed #b9c1ce;vertical-align:top;word-wrap:break-word}td:nth-child(2){text-align:center}.r{text-align:right}.subline{font-size:9px;color:#596579;margin-top:2px}.sum{display:flex;justify-content:space-between;margin-top:7px}.t{font-size:17px;font-weight:800;border-top:1px solid #172033;padding-top:8px;margin:9px 0 0}.thanks{text-align:center;border-top:1px dashed #aab3c1;margin-top:12px;padding-top:9px;font-size:10px;color:#596579}@media print{html,body{width:80mm;margin:0 auto}body{padding:3mm 4mm}}</style></head><body><div class="brand"><h2>${esc(store.storeName || store.businessName || "TẠP HÓA POS")}</h2>${store.businessName ? `<p class="legal">HKD: ${esc(store.businessName)}</p>` : ""}${store.businessAddress ? `<p>${esc(store.businessAddress)}</p>` : ""}${store.businessPhone ? `<p>ĐT: ${esc(store.businessPhone)}</p>` : ""}${store.taxCode ? `<p>MST: ${esc(store.taxCode)}</p>` : ""}${store.businessSlogan ? `<p>${esc(store.businessSlogan)}</p>` : ""}</div><div class="meta"><b>HÓA ĐƠN BÁN HÀNG</b><br>Mã HĐ: ${esc(order.id)}<br>Thời gian: ${new Date().toLocaleString('vi-VN')}<br>Máy: ${esc(machineId)}</div><table><thead><tr><th>Mặt hàng</th><th>SL</th><th>Thành tiền</th></tr></thead><tbody>${order.items.map(i => `<tr><td>${esc(i.name)}<div class="subline">${esc(i.unit)} x ${money(i.price)}</div></td><td>${i.qty}</td><td class="r">${money(i.qty * i.price)}</td></tr>`).join("")}</tbody></table><div class="sum"><span>Tạm tính</span><b>${money(order.subtotal)}</b></div><div class="sum"><span>Giảm giá</span><b>${money(order.discount)}</b></div><p class="t">TỔNG: ${money(order.total)}</p><div class="sum"><span>Thanh toán</span><b>${order.paymentMethod === 'cash' ? 'Tiền mặt' : 'Chuyển khoản'}</b></div><div class="thanks">${esc(store.businessSlogan || "Cảm ơn quý khách và hẹn gặp lại!")}</div></body></html>`);
+  w.document.write(`<html><head><title>Hóa đơn ${esc(order.id)}</title><style>@page{size:80mm auto;margin:0}*{box-sizing:border-box}html{width:100%;display:flex;justify-content:center}body{font-family:Arial,sans-serif;width:72mm;margin:0 auto;padding:4mm 0;color:#172033;font-size:11px}.brand{text-align:center;border-bottom:1px solid #172033;padding-bottom:8px;margin-bottom:8px}.brand h2{margin:0 0 3px;font-size:21px;letter-spacing:.3px;text-transform:uppercase}.brand p{margin:2px 0;font-size:9px;color:#414b5c}.legal{font-size:10px;font-weight:700}.meta{font-size:9px;line-height:1.5;margin-bottom:6px}.meta b{font-size:10px}table{width:100%;border-collapse:collapse;table-layout:fixed}th{font-size:9px;text-align:left;border-bottom:1px solid #172033;padding:5px 0}th:nth-child(1){width:48%}th:nth-child(2){width:16%;text-align:center}th:nth-child(3){width:36%;text-align:right}td{padding:6px 0;border-bottom:1px dashed #b9c1ce;vertical-align:top;word-wrap:break-word}td:nth-child(2){text-align:center}.r{text-align:right}.subline{font-size:9px;color:#596579;margin-top:2px}.sum{display:flex;justify-content:space-between;margin-top:7px}.t{font-size:17px;font-weight:800;border-top:1px solid #172033;padding-top:8px;margin:9px 0 0}.thanks{text-align:center;border-top:1px dashed #aab3c1;margin-top:12px;padding-top:9px;font-size:10px;color:#596579}@media print{html,body{width:80mm;margin:0 auto}body{padding:3mm 4mm}}</style></head><body><div class="brand"><h2>${esc(store.storeName || store.businessName || "TẠP HÓA POS")}</h2>${store.businessName ? `<p class="legal">HKD: ${esc(store.businessName)}</p>` : ""}${store.businessAddress ? `<p>${esc(store.businessAddress)}</p>` : ""}${store.businessPhone ? `<p>ĐT: ${esc(store.businessPhone)}</p>` : ""}${store.taxCode ? `<p>MST: ${esc(store.taxCode)}</p>` : ""}${store.businessSlogan ? `<p>${esc(store.businessSlogan)}</p>` : ""}</div><div class="meta"><b>HÓA ĐƠN BÁN HÀNG</b><br>Mã HĐ: ${esc(order.id)}<br>Thời gian: ${new Date().toLocaleString('vi-VN')}<br>Máy: ${esc(machineId)}${order.customerName ? '<br>Khách: ' + esc(order.customerName) : ''}</div><table><thead><tr><th>Mặt hàng</th><th>SL</th><th>Thành tiền</th></tr></thead><tbody>${order.items.map(i => `<tr><td>${esc(i.name)}<div class="subline">${esc(i.unit)} x ${money(i.price)}</div></td><td>${i.qty}</td><td class="r">${money(i.qty * i.price)}</td></tr>`).join("")}</tbody></table><div class="sum"><span>Tạm tính</span><b>${money(order.subtotal)}</b></div><div class="sum"><span>Giảm giá</span><b>${money(order.discount)}</b></div><p class="t">TỔNG: ${money(order.total)}</p><div class="sum"><span>Thanh toán</span><b>${payLabel(order)}</b></div>${order.debtAmount ? `<div class="sum"><span>Khách trả trước</span><b>${money(order.paidAmount || 0)}</b></div><div class="sum"><span>Ghi nợ</span><b>${money(order.debtAmount)}</b></div>` : ""}<div class="thanks">${esc(store.businessSlogan || "Cảm ơn quý khách và hẹn gặp lại!")}</div></body></html>`);
   w.document.close();
   w.focus();
   w.print();
 }
 
 // ----- PHẦN 12: CUSTOMER SCREEN -----
-function updateCustomerScreen(total) {
-  const store = state.storeSettings || {};
-  const bankName = localStorage.getItem("thpos_bank_name") || store.bankName || "";
-  const bank = { name: bankName, code: localStorage.getItem("thpos_bank_code") || store.bankCode || bankBinFromName(bankName), number: localStorage.getItem("thpos_bank_number") || store.bankNumber || "", owner: localStorage.getItem("thpos_bank_owner") || store.bankOwner || "" };
-  const data = { customer: $("customerSelect")?.selectedOptions?.[0]?.text || "Khách lẻ", items: state.cart, total, subtotal: state.cart.reduce((sum, item) => sum + item.qty * item.price, 0), paymentMethod: state.payment, qrData: state.payment === "transfer" && bank.code && bank.number ? vietQrUrl(bank, total) : "", bankName: bank.name, bankOwner: bank.owner, store: { ...store, ...bank } };
-  try { localStorage.setItem("thpos_customer_screen", JSON.stringify(data)); } catch (_) { }
-  window.customerScreen?.postMessage({ type: "pos-update", data }, "*");
+function customerPayload(total) {
+  const st = state.storeSettings || {}, bank = activeBank(), d = debtInfo(total);
+  const transfer = state.payment === "transfer" && bank.code && bank.number && total > 0;
+  const f = state.flash && state.flash.until > Date.now() ? state.flash : null;
+  return {
+    ts: Date.now(),
+    customer: $("customerSelect")?.selectedOptions?.[0]?.text || "Khách lẻ",
+    items: state.cart, total,
+    subtotal: state.cart.reduce((sum, item) => sum + item.qty * item.price, 0),
+    discount: Math.max(0, Number($("discount")?.value) || 0),
+    paymentMethod: state.payment,
+    qrData: transfer ? vietQrUrl(bank, total, "qr_only") : "",
+    qrFull: transfer ? vietQrUrl(bank, total) : "",
+    payRef: transfer ? payRef() : "",
+    bankName: bank.name, bankOwner: bank.owner, bankNumber: bank.number,
+    debt: state.payment === "debt" && d.customer ? { name: d.name, previous: d.previous, paidNow: d.paidNow, add: d.add, after: d.after } : null,
+    flash: f,
+    store: { storeName: st.storeName, businessName: st.businessName, taxCode: st.taxCode, businessAddress: st.businessAddress, businessPhone: st.businessPhone, businessSlogan: st.businessSlogan }
+  };
 }
+const screenChannel = "BroadcastChannel" in window ? new BroadcastChannel("thpos_customer_screen") : null;
+let lastScreen = null;
+function pushCustomerScreen(data = lastScreen) {
+  if (!data) return;
+  lastScreen = data;
+  try { localStorage.setItem("thpos_customer_screen", JSON.stringify(data)); } catch (_) { }
+  try { screenChannel?.postMessage({ type: "pos-update", data }); } catch (_) { }
+  try { window.customerScreen?.postMessage({ type: "pos-update", data }, "*"); } catch (_) { }
+}
+function updateCustomerScreen(total) { pushCustomerScreen(customerPayload(total)); }
+screenChannel?.addEventListener("message", e => { if (e.data?.type === "customer-ready") pushCustomerScreen(); });
+window.addEventListener("message", e => { if (e.data?.type === "customer-ready") pushCustomerScreen(); });
+setInterval(() => { if (lastScreen) pushCustomerScreen({ ...lastScreen, ts: Date.now() }); }, 4000);
 $("customerScreenBtn")?.addEventListener("click", openCustomerScreen);
 $("customerScreenTop")?.addEventListener("click", openCustomerScreen);
-function openCustomerScreen() { window.customerScreen = window.open("customer-screen.html", "THPOS_CUSTOMER", "width=1100,height=750"); }
+function openCustomerScreen() {
+  if (window.customerScreen && !window.customerScreen.closed) {
+    window.customerScreen.focus();
+    pushCustomerScreen();
+    return window.customerScreen;
+  }
+  const screen = window.open("customer-screen.html", "THPOS_CUSTOMER", "popup,width=1280,height=900");
+  if (!screen) { toast("Hãy cho phép cửa sổ màn hình khách để hiển thị mã QR.", false); return null; }
+  window.customerScreen = screen;
+  screen.focus();
+  pushCustomerScreen();
+  return screen;
+}
 
 // ----- PHẦN 13: DASHBOARD (LEGACY) -----
 function renderDashboard() {
-  const paid = state.orders.filter(o => (o.status === "paid" || o.status === "completed") && inPeriod(o, state.dashboardPeriod || "day"));
+  const paid = state.orders.filter(o => isSale(o) && inPeriod(o, state.dashboardPeriod || "day"));
   $("dRevenue").textContent = money(paid.reduce((a, o) => a + Number(o.total || 0), 0));
   $("dOrders").textContent = paid.length;
   $("dProfit").textContent = money(paid.reduce((a, o) => a + Number(o.total || 0) - o.items?.reduce((x, i) => x + Number(i.cost || 0) * Number(i.qty || 0), 0), 0));
@@ -866,7 +1161,7 @@ function renderOrders() {
     <tr>
       <td>${esc(o.id)}</td>
       <td>${o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('vi-VN') : ''}</td>
-      <td>${esc(o.customerId || 'Khách lẻ')}</td>
+      <td>${esc(customerLabel(o))}</td>
       <td>${(o.items || []).reduce((a, i) => a + Number(i.qty || 0), 0)}</td>
       <td>${money(o.total)}</td>
       <td>${money(Number(o.total || 0) - (o.items || []).reduce((a, i) => a + Number(i.cost || 0) * Number(i.qty || 0), 0))}</td>
@@ -881,16 +1176,52 @@ $("orderSearch")?.addEventListener("input", debounce(renderOrders));
 function renderCustomers() {
   const q = ($("customerPageSearch")?.value || "").toLowerCase();
   $("customerList").innerHTML = state.customers.filter(c => !q || String(c.name || "").toLowerCase().includes(q) || String(c.phone || "").includes(q)).map(c => `
-    <div class="customer-row">
+    <div class="customer-row ${state.selectedCustomer === c.id ? "active" : ""}" data-cust-open="${c.id}">
       <div><b>${esc(c.name || "Không tên")}</b><small>${esc(c.phone || "")}</small></div>
-      <div><button class="soft" data-cust-edit="${c.id}">Sửa</button> <button class="danger" data-cust-del="${c.id}">Xóa</button></div>
+      <div class="cust-right">${Number(c.debt) > 0 ? `<span class="debt-pill">Nợ ${money(c.debt)}</span>` : ""}<button class="soft" data-cust-edit="${c.id}">Sửa</button> <button class="danger" data-cust-del="${c.id}">Xóa</button></div>
     </div>
   `).join("") || '<div class="empty-detail">Chưa có khách hàng.</div>';
+}
+function renderCustomerDetail() {
+  const box = $("customerDetail");
+  if (!box) return;
+  const c = state.customers.find(x => x.id === state.selectedCustomer);
+  if (!c) { box.innerHTML = '<div class="empty-detail">Chọn một khách hàng để xem lịch sử mua hàng và công nợ.</div>'; return; }
+  const os = state.orders.filter(o => o.customerId === c.id && o.status !== "cancelled");
+  const spent = os.reduce((a, o) => a + Number(o.total || 0), 0);
+  const debt = Number(c.debt) || 0;
+  box.innerHTML = `<div class="customer-detail-head"><div><h2>${esc(c.name)}</h2><p>${esc(c.phone || "Chưa có SĐT")} · ${os.length} đơn</p></div>${debt > 0 ? `<button class="primary" data-collect="${c.id}">Thu nợ</button>` : ""}</div>
+    <div class="debt-summary"><div><span>Công nợ hiện tại</span><b class="${debt > 0 ? "danger" : ""}">${money(debt)}</b></div><div><span>Tổng đã mua</span><b>${money(spent)}</b></div></div>
+    <div class="table-wrap"><table><thead><tr><th>Thời gian</th><th>Tổng</th><th>Thanh toán</th><th>Tình trạng</th></tr></thead><tbody>${os.slice(0, 30).map(o => `<tr><td>${dateValue(o.createdAt)?.toLocaleString("vi-VN") || ""}</td><td>${money(o.total)}</td><td>${esc(payLabel(o))}</td><td>${esc(statusLabel(o))}</td></tr>`).join("") || '<tr><td colspan="4">Chưa có đơn.</td></tr>'}</tbody></table></div>`;
+}
+$("customerDetail")?.addEventListener("click", e => { const b = e.target.closest("[data-collect]"); if (b) openCollectDebt(b.dataset.collect); });
+function openCollectDebt(id) {
+  const c = state.customers.find(x => x.id === id);
+  if (!c) return;
+  const debt = Number(c.debt) || 0;
+  $("modalTitle").textContent = "Thu nợ · " + (c.name || "");
+  $("modalBody").innerHTML = `<div class="form-grid"><label class="full">Công nợ hiện tại<input value="${money(debt)}" disabled></label><label>Số tiền thu<input id="debtAmt" type="number" min="1" max="${debt}" value="${debt}"></label><label>Hình thức<select id="debtMethod"><option value="cash">Tiền mặt</option><option value="transfer">Chuyển khoản</option></select></label><label class="full">Ghi chú<input id="debtNote" placeholder="Ví dụ: khách trả đợt 1"></label></div><div class="form-actions"><button class="soft" id="debtCancel">Hủy</button><button class="primary" id="debtSave">Xác nhận thu</button></div>`;
+  $("modal").classList.remove("hidden");
+  $("debtCancel").onclick = () => $("modal").classList.add("hidden");
+  $("debtSave").onclick = async () => {
+    const amount = Math.round(Number($("debtAmt").value) || 0);
+    if (amount <= 0 || amount > debt) { toast("Số tiền thu không hợp lệ.", false); return; }
+    const ids = state.orders.filter(o => o.customerId === id && o.status === "debt").sort((x, y) => (dateValue(x.createdAt) || 0) - (dateValue(y.createdAt) || 0)).map(o => o.id).slice(0, 100);
+    const btn = $("debtSave");
+    btn.disabled = true;
+    const r = await collectDebt(id, amount, $("debtMethod").value, $("debtNote").value.trim(), ids);
+    btn.disabled = false;
+    if (!r.success) { toast(r.error, false); return; }
+    $("modal").classList.add("hidden");
+    toast(`Đã thu nợ ${money(amount)}`);
+  };
 }
 $("customerPageSearch")?.addEventListener("input", debounce(renderCustomers));
 $("customerList")?.addEventListener("click", async e => {
   const ed = e.target.closest('[data-cust-edit]');
   const dl = e.target.closest('[data-cust-del]');
+  const op = e.target.closest('[data-cust-open]');
+  if (op && !ed && !dl) { state.selectedCustomer = op.dataset.custOpen; renderCustomers(); renderCustomerDetail(); return; }
   if (ed) {
     const c = state.customers.find(x => x.id === ed.dataset.custEdit);
     if (!c) return;
@@ -900,7 +1231,7 @@ $("customerList")?.addEventListener("click", async e => {
     const r = await updateCustomer(c.id, { name, phone });
     toast(r.success ? 'Đã cập nhật khách hàng' : r.error, !r.success ? false : true);
   }
-  if (dl && confirm('Xóa khách hàng này?')) {
+  if (dl && confirm((Number(state.customers.find(x => x.id === dl.dataset.custDel)?.debt) || 0) > 0 ? 'Khách này còn công nợ. Xóa sẽ mất sổ nợ của khách. Vẫn xóa?' : 'Xóa khách hàng này?')) {
     const r = await deleteCustomer(dl.dataset.custDel);
     toast(r.success ? 'Đã xóa khách hàng' : r.error, !r.success ? false : true);
   }
@@ -917,7 +1248,10 @@ async function promptCustomer() {
 
 function renderCustomerSelect() {
   const s = $("customerSelect");
-  if (s) s.innerHTML = '<option value="">Khách lẻ</option>' + state.customers.map(c => `<option value="${c.id}">${esc(c.name)}${c.phone ? ' · ' + esc(c.phone) : ''}</option>`).join("");
+  if (!s) return;
+  const keep = s.value;
+  s.innerHTML = '<option value="">Khách lẻ</option>' + state.customers.map(c => `<option value="${c.id}">${esc(c.name)}${c.phone ? ' · ' + esc(c.phone) : ''}</option>`).join("");
+  s.value = state.customers.some(c => c.id === keep) ? keep : "";
 }
 
 // ----- PHẦN 16: SUPPLIERS -----
@@ -1047,7 +1381,7 @@ function renderSalesChart() {
   if (!el) return;
   const days = [];
   for (let i = 6; i >= 0; i--) { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i); days.push(d); }
-  const vals = days.map(d => state.orders.filter(o => (o.status === 'paid' || o.status === 'completed') && ((dateValue(o.createdAt) || new Date()).toDateString() === d.toDateString())).reduce((a, o) => a + Number(o.total || 0), 0));
+  const vals = days.map(d => state.orders.filter(o => isSale(o) && ((dateValue(o.createdAt) || new Date()).toDateString() === d.toDateString())).reduce((a, o) => a + Number(o.total || 0), 0));
   const max = Math.max(1, ...vals);
   el.innerHTML = days.map((d, i) => `
     <div class="chart-col">
@@ -1061,14 +1395,14 @@ function renderSalesChart() {
 function renderDashboardV53() {
   renderDashboard();
   renderSalesChart();
-  const paid = state.orders.filter(o => o.status === 'paid' || o.status === 'completed');
+  const paid = state.orders.filter(o => isSale(o));
   const best = topProducts(paid);
   if ($("topProducts")) $("topProducts").innerHTML = best.map((x, i) => `<div class="low-item"><span>${i + 1}. ${esc(x.name)}</span><b>${x.qty}</b></div>`).join('') || '<div class="low-item">Chưa có dữ liệu.</div>';
 }
 
 function renderReportsV53() {
   const period = $("reportPeriod")?.value || 'day';
-  const orders = state.orders.filter(o => (o.status === 'paid' || o.status === 'completed') && inPeriod(o, period));
+  const orders = state.orders.filter(o => isSale(o) && inPeriod(o, period));
   const revenue = orders.reduce((a, o) => a + Number(o.total || 0), 0);
   const cost = orders.reduce((a, o) => a + (o.items || []).reduce((x, i) => x + Number(i.cost || 0) * Number(i.qty || 0), 0), 0);
   const expense = state.expenses.filter(x => {
@@ -1090,6 +1424,8 @@ function renderReportsV53() {
     <div class="report-row"><span>Số đơn</span><b>${orders.length}</b></div>
     <div class="report-row"><span>Lợi nhuận gộp</span><b>${money(revenue - cost)}</b></div>
     <div class="report-row"><span>Lợi nhuận ròng</span><b>${money(revenue - cost - expense)}</b></div>
+    <div class="report-row"><span>Bán chịu trong kỳ</span><b>${money(orders.reduce((a, o) => a + (Number(o.debtAmount) || 0), 0))}</b></div>
+    <div class="report-row"><span>Công nợ phải thu (tất cả khách)</span><b>${money(state.customers.reduce((a, c) => a + (Number(c.debt) || 0), 0))}</b></div>
   `;
 }
 $("reportPeriod")?.addEventListener('change', renderReportsV53);
@@ -1104,8 +1440,8 @@ function renderNotificationsV53() {
   if ($("sideNotificationCount")) $("sideNotificationCount").textContent = lows.length;
 }
 
-function renderSettingsV53() {
-  getSettings().then(cfg => {
+function renderSettingsV53(cfgIn) {
+  (cfgIn ? Promise.resolve(cfgIn) : getSettings()).then(cfg => {
     const legacyAccount = cfg.bankName && cfg.bankNumber ? [{ id: "legacy", name: cfg.bankName, code: cfg.bankCode || bankBinFromName(cfg.bankName), number: cfg.bankNumber, owner: cfg.bankOwner || "" }] : [];
     state.storeSettings = { ...cfg, bankAccounts: cfg.bankAccounts?.length ? cfg.bankAccounts : legacyAccount };
     const saved = cfg.unitConfig || { unit1: true, unit2: true, unit3: true };
@@ -1133,6 +1469,7 @@ function renderSettingsV53() {
     renderPaymentAccounts();
     const cats = cfg.categories || [];
     if ($("categoryManage")) $("categoryManage").innerHTML = cats.map(c => `<span class="tag">${esc(c)} <button data-cat-del="${esc(c)}">×</button></span>`).join('');
+    renderCart();
   });
 }
 
@@ -1195,51 +1532,113 @@ function downloadBlob(name, text, type = 'text/plain') {
 }
 
 // ----- PHẦN 20: EXCEL IMPORT/EXPORT -----
+const PRODUCT_EXPORT_COLUMNS = [
+  ["barcode", "Mã vạch"], ["name", "Tên sản phẩm"], ["category", "Danh mục"], ["preferredUnit", "Đơn vị ưu tiên"],
+  ["unit1", "Đơn vị 1"], ["unit1Factor", "Hệ số quy đổi 1"], ["unit1Cost", "Giá vốn đơn vị 1"], ["unit1Price", "Giá bán đơn vị 1"],
+  ["unit2", "Đơn vị 2"], ["unit2Factor", "Hệ số quy đổi 2"], ["unit2Cost", "Giá vốn đơn vị 2"], ["unit2Price", "Giá bán đơn vị 2"],
+  ["unit3", "Đơn vị 3"], ["unit3Factor", "Hệ số quy đổi 3"], ["unit3Cost", "Giá vốn đơn vị 3"], ["unit3Price", "Giá bán đơn vị 3"],
+  ["stockBase", "Tồn kho (đơn vị cơ sở)"], ["lowStock", "Ngưỡng cảnh báo tồn"]
+];
+
+const IMPORT_HEADER_ALIASES = {};
+const PRODUCT_IMPORT_ALIASES = {
+  barcode: ["Mã vạch", "barcode", "mã hàng"], name: ["Tên sản phẩm", "name", "tên hàng"], category: ["Danh mục", "category"],
+  preferredUnit: ["Đơn vị ưu tiên", "preferredUnit"], unit1: ["Đơn vị 1", "unit1"], unit1Factor: ["Hệ số quy đổi 1", "Hệ số đơn vị 1", "Hệ số 1", "unit1Factor"],
+  unit1Cost: ["Giá vốn đơn vị 1", "Giá vốn 1", "unit1Cost"], unit1Price: ["Giá bán đơn vị 1", "Giá bán 1", "unit1Price"],
+  unit2: ["Đơn vị 2", "unit2"], unit2Factor: ["Hệ số quy đổi 2", "Hệ số đơn vị 2", "Hệ số 2", "unit2Factor"],
+  unit2Cost: ["Giá vốn đơn vị 2", "Giá vốn 2", "unit2Cost"], unit2Price: ["Giá bán đơn vị 2", "Giá bán 2", "unit2Price"],
+  unit3: ["Đơn vị 3", "unit3"], unit3Factor: ["Hệ số quy đổi 3", "Hệ số đơn vị 3", "Hệ số 3", "unit3Factor"],
+  unit3Cost: ["Giá vốn đơn vị 3", "Giá vốn 3", "unit3Cost"], unit3Price: ["Giá bán đơn vị 3", "Giá bán 3", "unit3Price"],
+  stockBase: ["Tồn kho", "Tồn kho cơ sở", "Tồn kho (đơn vị cơ sở)", "stockBase"], lowStock: ["Ngưỡng cảnh báo tồn", "Cảnh báo tồn", "lowStock"]
+};
+function normalizeExcelHeader(value) {
+  return String(value || "").trim().toLowerCase().replace(/đ/g, "d").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+}
+for (const [field, aliases] of Object.entries(PRODUCT_IMPORT_ALIASES)) {
+  for (const alias of [field, ...aliases]) IMPORT_HEADER_ALIASES[normalizeExcelHeader(alias)] = field;
+}
+function mapImportedProductRow(row) {
+  const mapped = {};
+  for (const [header, value] of Object.entries(row)) {
+    const field = IMPORT_HEADER_ALIASES[normalizeExcelHeader(header)];
+    if (field) mapped[field] = value;
+  }
+  return mapped;
+}
+function addLocalizedSheet(workbook, rows, columns, sheetName) {
+  const data = [columns.map(([, label]) => label), ...rows.map(row => columns.map(([field]) => row[field] ?? ""))];
+  const sheet = XLSX.utils.aoa_to_sheet(data);
+  sheet["!cols"] = columns.map(([, label]) => ({ wch: Math.max(14, Math.min(30, label.length + 3)) }));
+  XLSX.utils.book_append_sheet(workbook, sheet, sheetName);
+}
+
 $("downloadTemplate")?.addEventListener('click', () => {
-  const headers = ['barcode', 'name', 'category', 'preferredUnit', 'unit1', 'unit1Factor', 'unit1Cost', 'unit1Price', 'unit2', 'unit2Factor', 'unit2Cost', 'unit2Price', 'unit3', 'unit3Factor', 'unit3Cost', 'unit3Price', 'stockBase', 'lowStock'];
-  const ws = XLSX.utils.json_to_sheet([Object.fromEntries(headers.map(h => [h, '']))]);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Products');
-  XLSX.writeFile(wb, 'TapHoaPOS_Template.xlsx');
+  addLocalizedSheet(wb, [], PRODUCT_EXPORT_COLUMNS, 'Hàng hóa');
+  XLSX.writeFile(wb, 'Mau_nhap_hang_Tap_Hoa_POS.xlsx');
 });
 
 let importRows = [];
 $("excelFile")?.addEventListener('change', async e => {
   const f = e.target.files?.[0];
   if (!f) return;
-  const data = await f.arrayBuffer();
-  const wb = XLSX.read(data, { type: 'array' });
-  importRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
-  $("importPreview").innerHTML = `<div class="muted">Đã đọc ${importRows.length} dòng.</div><pre>${esc(JSON.stringify(importRows.slice(0, 8), null, 2))}</pre>`;
-  $("confirmImport").classList.toggle('hidden', !importRows.length);
+  try {
+    const data = await f.arrayBuffer();
+    const wb = XLSX.read(data, { type: 'array' });
+    importRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(mapImportedProductRow);
+    const columns = PRODUCT_EXPORT_COLUMNS.filter(([field]) => importRows.some(row => field in row));
+    const previewRows = importRows.slice(0, 8);
+    $("importPreview").innerHTML = `<p class="muted">Đã đọc ${importRows.length} dòng. Hiển thị tối đa 8 dòng đầu tiên để kiểm tra.</p>${columns.length ? `<div class="table-wrap import-preview-table"><table><thead><tr>${columns.map(([, label]) => `<th>${esc(label)}</th>`).join("")}</tr></thead><tbody>${previewRows.map(row => `<tr>${columns.map(([field]) => `<td>${esc(row[field] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : '<p class="import-error">Không tìm thấy tiêu đề cột phù hợp. Hãy tải tệp mẫu để xem đúng định dạng.</p>'}`;
+    $("confirmImport").classList.toggle('hidden', !importRows.length || !columns.length);
+  } catch (error) {
+    importRows = [];
+    $("importPreview").innerHTML = '<p class="import-error">Không đọc được tệp. Hãy chọn tệp Excel hoặc CSV hợp lệ.</p>';
+    $("confirmImport").classList.add('hidden');
+    console.error("Excel import error", error);
+  }
 });
 $("confirmImport")?.addEventListener('click', async () => {
-  let ok = 0;
+  let ok = 0, skipped = 0, failed = 0;
   for (const row of importRows) {
-    if (!row.name) continue;
-    const d = { ...row, barcode: normalizeBarcode(row.barcode), stockBase: Number(row.stockBase) || 0, lowStock: Number(row.lowStock) || 0 };
+    if (!row.name || !row.barcode) { skipped++; continue; }
+    const d = { ...row, barcode: normalizeBarcode(row.barcode), name: String(row.name).trim(), stockBase: Number(row.stockBase) || 0, lowStock: Number(row.lowStock) || 0 };
     for (let i = 1; i <= 3; i++) { d['unit' + i] = String(d['unit' + i] || '').trim(); d['unit' + i + 'Factor'] = Number(d['unit' + i + 'Factor']) || 1; d['unit' + i + 'Cost'] = Number(d['unit' + i + 'Cost']) || 0; d['unit' + i + 'Price'] = Number(d['unit' + i + 'Price']) || 0; }
     d.preferredUnit = d.preferredUnit || d.unit1;
     const old = findProduct(d.barcode);
     const r = old ? await updateProduct(old.id, d) : await addProduct(d);
-    if (r.success) ok++;
+    if (r.success) ok++; else failed++;
   }
-  toast(`Đã nhập ${ok}/${importRows.length} sản phẩm`);
+  toast(`Đã nhập ${ok} sản phẩm · bỏ qua ${skipped} dòng thiếu mã vạch hoặc tên · lỗi ${failed} dòng`, failed ? false : true);
 });
 $("exportExcel")?.addEventListener('click', () => {
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(state.products), 'Products');
-  XLSX.writeFile(wb, 'TapHoaPOS_Products.xlsx');
+  addLocalizedSheet(wb, state.products, PRODUCT_EXPORT_COLUMNS, 'Hàng hóa');
+  XLSX.writeFile(wb, 'Danh_sach_hang_hoa_Tap_Hoa_POS.xlsx');
 });
 $("exportOrdersBtn")?.addEventListener('click', () => {
+  const columns = [["id", "Mã đơn"], ["createdAt", "Thời gian"], ["customer", "Khách hàng"], ["quantity", "Tổng số lượng"], ["subtotal", "Tạm tính"], ["discount", "Giảm giá"], ["total", "Tổng thanh toán"], ["payment", "Phương thức thanh toán"], ["status", "Trạng thái"], ["machine", "Mã quầy"], ["operator", "Nhân viên"]];
+  const rows = state.orders.map(order => ({
+    id: order.id,
+    createdAt: dateValue(order.createdAt)?.toLocaleString("vi-VN") || "",
+    customer: customerLabel(order),
+    quantity: (order.items || []).reduce((total, item) => total + Number(item.qty || 0), 0),
+    subtotal: Number(order.subtotal) || 0,
+    discount: Number(order.discount) || 0,
+    total: Number(order.total) || 0,
+    payment: payLabel(order),
+    status: statusLabel(order),
+    machine: order.machineId || "",
+    operator: order.operatorName || ""
+  }));
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(state.orders.map(o => ({ id: o.id, status: o.status, total: o.total, machineId: o.machineId, customerId: o.customerId }))), 'Orders');
-  XLSX.writeFile(wb, 'TapHoaPOS_Orders.xlsx');
+  addLocalizedSheet(wb, rows, columns, 'Đơn hàng');
+  XLSX.writeFile(wb, 'Danh_sach_don_hang_Tap_Hoa_POS.xlsx');
 });
 $("exportExpensesBtn")?.addEventListener('click', () => {
+  const columns = [["date", "Ngày"], ["category", "Danh mục chi phí"], ["amount", "Số tiền"], ["note", "Ghi chú"]];
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(state.expenses), 'Expenses');
-  XLSX.writeFile(wb, 'TapHoaPOS_Expenses.xlsx');
+  addLocalizedSheet(wb, state.expenses, columns, 'Chi phí');
+  XLSX.writeFile(wb, 'Danh_sach_chi_phi_Tap_Hoa_POS.xlsx');
 });
 
 // ----- PHẦN 21: ORDER CONTROLS (print/cancel) -----
@@ -1249,18 +1648,20 @@ function renderOrdersV53() {
     <tr>
       <td>${esc(o.id)}</td>
       <td>${dateValue(o.createdAt)?.toLocaleString('vi-VN') || ''}</td>
-      <td>${esc(o.customerId || 'Khách lẻ')}</td>
+      <td>${esc(customerLabel(o))}</td>
       <td>${(o.items || []).reduce((a, i) => a + Number(i.qty || 0), 0)}</td>
       <td>${money(o.total)}</td>
       <td>${money(Number(o.total || 0) - (o.items || []).reduce((a, i) => a + Number(i.cost || 0) * Number(i.qty || 0), 0))}</td>
-      <td>${o.status === 'cancelled' ? 'Đã hủy' : o.status === 'pending_transfer' ? 'Chờ chuyển khoản' : 'Đã thanh toán'}</td>
-      <td>${o.status === 'cancelled' ? '' : `<button class="soft" data-print-order="${o.id}">In</button> <button class="danger" data-cancel-order="${o.id}">Hủy + hoàn kho</button>`}</td>
+      <td>${esc(payLabel(o))}<br><small>${esc(statusLabel(o))}</small></td>
+      <td>${o.status === 'cancelled' ? '' : `<button class="soft" data-print-order="${o.id}">In</button> ${o.status === 'pending_transfer' ? `<button class="primary" data-confirm-order="${o.id}">✓ Đã nhận tiền</button> ` : ''}<button class="danger" data-cancel-order="${o.id}">Hủy + hoàn kho</button>`}</td>
     </tr>
   `).join('');
 }
 $("orderTable")?.addEventListener('click', async e => {
   const pr = e.target.closest('[data-print-order]');
   if (pr) { const o = state.orders.find(x => x.id === pr.dataset.printOrder); if (o) printReceipt(o); }
+  const cf = e.target.closest('[data-confirm-order]');
+  if (cf) { const r = await confirmTransfer(cf.dataset.confirmOrder); toast(r.success ? 'Đã xác nhận nhận tiền' : r.error, r.success); }
   const ca = e.target.closest('[data-cancel-order]');
   if (ca && confirm('Hủy đơn và hoàn lại tồn kho?')) {
     const r = await cancelOrder(ca.dataset.cancelOrder);
@@ -1274,11 +1675,11 @@ function bindExtraControls() {
   $("findCustomerBtn")?.addEventListener("click", () => { setPage("customers"); setTimeout(() => $("customerPageSearch")?.focus(), 50); });
   $("receiveQuickBtn")?.addEventListener("click", () => { setPage("inventory"); setTimeout(() => $("receiveBarcodeInput")?.focus(), 50); });
   $("openQrBtn")?.addEventListener("click", () => {
-    const bank = $("bankSelect")?.value || "";
+    const bank = $("qrText")?.textContent || "";
     const q = $("qr")?.innerHTML || "";
     if (!q) { toast("Chưa có QR để mở.", false); return; }
     const w = window.open("", "THPOS_QR", "width=520,height=620");
-    if (w) { w.document.write(`<html><head><title>QR thanh toán</title></head><body style="font-family:Arial;text-align:center;padding:30px"><h2>QR thanh toán</h2><div>${q}</div><p>${bank}</p></body></html>`); w.document.close(); }
+    if (w) { w.document.write(`<html><head><title>QR thanh toán</title></head><body style="font-family:Arial;text-align:center;padding:30px"><h2>QR thanh toán</h2><div>${q}</div><p>${esc(bank)}</p></body></html>`); w.document.close(); }
   });
   $("changePasswordBtn")?.addEventListener("click", async () => {
     const email = auth.currentUser?.email;
@@ -1330,7 +1731,7 @@ function bindNav() {
   $("settingsTopBtn")?.addEventListener("click", () => setPage("settings"));
   
   // Attach clear cart button
-  $("clearCart")?.addEventListener("click", () => { state.cart = []; renderCart(); });
+  $("clearCart")?.addEventListener("click", clearActiveOrder);
   
   // Bind extra controls
   bindExtraControls();
@@ -1340,11 +1741,16 @@ bindNav();
 async function doLogout() { await logoutUser(); location.href = "index.html"; }
 
 function startListeners() {
+  onSyncStatus(s => { state.sync = { ...state.sync, ...s }; if (s.ok && s.fromCache === false) state.sync.last = Date.now(); paintSync(); });
   loadCachedProducts();
   function applyProducts(ps) {
     setProducts(ps);
     const validIds = new Set(state.products.map(product => product.id));
-    state.cart = state.cart.filter(item => validIds.has(item.productId));
+    state.orderDrafts.forEach(draft => {
+      draft.cart = draft.cart.filter(item => validIds.has(item.productId));
+      draft.cart.forEach(x => { const p = state.products.find(p => p.id === x.productId); const u = p && unitsOf(p).find(u => u.name === x.unit); if (u) { x.price = u.price; x.cost = u.cost; x.name = p.name; } });
+    });
+    state.cart = activeDraft()?.cart || [];
     renderCart();
     if (state.page === "sale") renderSale();
     if (state.page === "products") renderProducts();
@@ -1362,11 +1768,23 @@ function startListeners() {
     }
     console.error("Product load error", error);
   });
-  listenOrders(os => { state.orders = os; if (state.page === "orders") renderOrdersV53(); if (state.page === "dashboard") renderDashboardV53(); if (state.page === "reports") renderReportsV53(); });
-  listenCustomers(cs => { state.customers = cs; renderCustomerSelect(); if (state.page === "customers") renderCustomers(); });
-  getSuppliers().then(x => { state.suppliers = x; if (state.page === "suppliers") renderSuppliers(); });
-  getExpenses().then(x => { state.expenses = x; if (state.page === "expenses") renderExpenses(); if (state.page === "reports") renderReportsV53(); });
-  renderSettingsV53();
+  listenOrders(os => { state.orders = os; if (state.page === "orders") renderOrdersV53(); if (state.page === "dashboard") renderDashboardV53(); if (state.page === "reports") renderReportsV53(); if (state.page === "customers") renderCustomerDetail(); });
+  listenCustomers(cs => { state.customers = cs; renderCustomerSelect(); renderCart(); if (state.page === "customers") { renderCustomers(); renderCustomerDetail(); } if (state.page === "reports") renderReportsV53(); });
+  listenSuppliers(x => { state.suppliers = x; if (state.page === "suppliers") renderSuppliers(); });
+  listenExpenses(x => { state.expenses = x; if (state.page === "expenses") renderExpenses(); if (state.page === "reports") renderReportsV53(); });
+  listenSettings(cfg => {
+    if (state.page === "settings" && document.activeElement?.matches?.("#page-settings input, #page-settings select")) return;
+    renderSettingsV53(cfg);
+  });
+  window.addEventListener("online", paintSync);
+  window.addEventListener("offline", paintSync);
+  setInterval(() => {
+    if (document.visibilityState !== "visible") return;
+    if (state.page === "dashboard") renderDashboardV53();
+    if (state.page === "reports") renderReportsV53();
+    paintSync();
+  }, 60000);
+  paintSync();
 }
 async function loadProductsNow() {
   const products = await getProducts();

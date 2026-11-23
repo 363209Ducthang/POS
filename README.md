@@ -1,5 +1,15 @@
 # Tạp Hóa POS – bản FIX đa máy + barcode
 
+## V5.6.0 – Màn hình thanh toán và giao diện mới
+- Chọn **Chuyển khoản** sẽ cập nhật QR và tự mở/focus cửa sổ màn hình khách; cửa sổ nhận QR ngay cả khi được mở lần đầu.
+- Làm mới giao diện quầy, trang đăng nhập và màn hình khách theo một phong cách thống nhất; thanh điều hướng trên điện thoại có thể cuộn ngang để mở mọi mục.
+- Màn hình khách báo rõ khi cửa hàng chưa cài tài khoản nhận chuyển khoản.
+
+## V5.5.2 – Sửa in tem, đơn nháp và Excel tiếng Việt
+- Chọn đúng chuẩn EAN-13/EAN-8/UPC cho mã có chữ số kiểm tra hợp lệ; mã khác dùng Code 128 để vẫn có thể in và quét.
+- Thu ngân có thể mở nhiều đơn nháp, chuyển qua lại, xóa từng đơn hoặc xóa mặt hàng; số lượng trong các đơn nháp được tính chung khi kiểm tra tồn kho.
+- Tệp mẫu, tệp nhập/xuất hàng hóa, đơn hàng và chi phí dùng tiêu đề tiếng Việt. Khi nhập vẫn nhận được tệp cũ dùng tên cột tiếng Anh.
+
 Bản này sửa lỗi cấu trúc của gói được gửi: `app.html` trước đây gọi `assets/app.js` và `index.html` gọi `assets/login.js` nhưng hai file JS không có trong gói. Bản FIX bổ sung đầy đủ JS chạy thực tế, chuyển sang Firebase modular SDK và thêm luồng quét barcode.
 
 ## Chức năng chính
@@ -41,3 +51,16 @@ Mở `index.html` qua web server (khuyến nghị VS Code Live Server hoặc hos
 - appId: `1:956872121564:web:adae0ace428374cc652819`.
 - Trang đăng nhập dùng Firebase Compat SDK 10.7.1 để tương thích trực tiếp với index.html.
 - Tài khoản demo được tạo bằng Firebase Authentication khi chưa tồn tại.
+
+
+## V5.5 – QR đẹp hơn, ghi nợ, đồng bộ liên tục
+- **Màn hình khách**: bố cục 2 cột khi chuyển khoản (giỏ hàng + thẻ QR lớn có khung quét, số tiền, tài khoản, nội dung CK), màn hình "Thanh toán thành công" / "Đã ghi nợ", báo trạng thái kết nối với quầy.
+- **Ghi nợ**: nút `📒 Ghi nợ` cạnh Tiền mặt / Chuyển khoản. Bắt buộc chọn khách (không dùng Khách lẻ), có ô "Khách trả trước". Công nợ lưu ở `customers/{id}.debt`, đơn lưu `debtAmount` / `debtPaid`, phiếu thu lưu ở collection `debtPayments`. Thu nợ tại Khách hàng → chọn khách → **Thu nợ** (trừ dần vào các đơn nợ cũ nhất).
+- **Đồng bộ**: nhà cung cấp, chi phí, cài đặt chuyển sang `onSnapshot`; chip trạng thái đồng bộ ở thanh trên; giá/tên sản phẩm trong giỏ tự cập nhật khi máy khác sửa; màn hình khách nhận dữ liệu qua BroadcastChannel + localStorage + postMessage và được quầy gửi lại mỗi 4 giây.
+- Đơn **Chờ chuyển khoản** có nút "✓ Đã nhận tiền" ở trang Đơn hàng. Doanh thu tính các đơn `paid`, `completed`, `debt` (bán chịu tính vào doanh thu, công nợ hiển thị riêng ở Báo cáo).
+- `firestore.rules` không cần đổi (collection `debtPayments` nằm trong `users/{uid}/{collection}`).
+
+## V5.5.1 – In tem barcode
+- Form thêm/sửa sản phẩm có hàng **Số tem in / Khổ tem / Nội dung tem / 🖨 In tem**: in được ngay cả khi chưa lưu sản phẩm (dùng đúng barcode, tên, giá đang nhập). Khổ tem: 50×30 mm, 40×25 mm (cuộn tem nhiệt) hoặc giấy A4 3 cột. Tối đa 500 tem mỗi lần.
+- Trang Hàng hóa có nút 🖨 từng dòng để in nhanh theo số lượng nhập. Khổ tem và nội dung tem được nhớ cho lần sau.
+- Khi in, chọn đúng khổ giấy trong hộp thoại in của trình duyệt và tắt "Headers and footers".

@@ -5,100 +5,153 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Màn hình khách hàng</title>
 <style>
-:root{--ink:#182235;--muted:#748096;--blue:#245ee4;--blue-dark:#102a68;--line:#e3e8f0;--soft:#f5f7fb;--coral:#ef684d}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;font-family:Segoe UI,Arial,sans-serif;color:var(--ink);background:#f4f6fa}
-.head{min-height:92px;background:var(--blue-dark);color:#fff;display:flex;align-items:center;padding:16px 52px;justify-content:space-between;box-shadow:0 5px 20px #102a6826}.brand{display:flex;align-items:center;gap:14px}.brand-mark{width:46px;height:46px;border-radius:11px;background:#fff;display:grid;place-items:center;color:var(--blue);font-size:23px}.brand h1{margin:0;font-size:21px;letter-spacing:.4px}.brand p{margin:3px 0 0;color:#b9caf1;font-size:10px}.brand #storeLegal{font-size:9px;font-weight:700;color:#dbe5ff}.customer{font-size:12px;color:#fff;font-weight:700;background:#ffffff16;border:1px solid #ffffff38;padding:10px 14px;border-radius:8px}
-.wrap{width:min(1180px,calc(100% - 104px));margin:30px auto;padding:0}.welcome{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.welcome h2{margin:0;font-size:23px;letter-spacing:-.3px}.welcome p{margin:5px 0 0;color:var(--muted);font-size:11px}.welcome-badge{padding:8px 11px;border-radius:7px;background:#fff;border:1px solid var(--line);color:var(--blue);font-size:10px;font-weight:800}
-.order-board{background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px #17294b0a;overflow:hidden}.board-head{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)}.board-head h3{margin:0;font-size:13px}.board-head span{color:var(--muted);font-size:10px}.table{width:100%;border-collapse:collapse}.table th,.table td{padding:14px 20px;border-bottom:1px solid #edf0f4;text-align:left}.table th{background:#fafbfd;color:#7b879b;font-size:9px;text-transform:uppercase;letter-spacing:.6px}.table td{font-size:12px}.table tbody tr:hover{background:#fafcff}.right{text-align:right!important}.total-bar{display:flex;justify-content:flex-end;align-items:center;gap:22px;padding:17px 20px;background:#f7f9fd}.total-label{color:#718097;font-size:11px;font-weight:700}.total{font-size:26px;font-weight:900;color:var(--blue);text-align:right}
-.empty{display:grid;place-items:center;align-content:center;min-height:calc(100vh - 92px);color:#65738b;font-size:16px;background:radial-gradient(circle at center,#fff 0,#f4f6fa 58%)}.empty:before{content:"🛒";display:grid;place-items:center;width:64px;height:64px;margin-bottom:14px;border-radius:18px;background:#e7efff;color:var(--blue);font-size:27px;box-shadow:0 8px 22px #245ee41a}
-.qr-container{margin-top:16px;text-align:center;background:#fff;border:1px solid var(--line);border-radius:10px;padding:19px;display:none;box-shadow:0 8px 24px #17294b0a}.qr-container .qr-label{font-weight:800;font-size:13px;color:#213b70;margin-bottom:11px}.qr-container img{max-width:190px;border:1px solid #dce3ef;border-radius:9px;padding:7px;background:#fff}.qr-container .bank-info{font-size:10px;color:#63718a;margin-top:8px}.thanks{text-align:center;color:#8591a4;font-size:10px;margin-top:18px}
-@media(max-width:700px){.head{padding:12px 18px}.brand h1{font-size:16px}.brand-mark{width:36px;height:36px;font-size:18px}.customer{font-size:11px;padding:8px}.wrap{width:calc(100% - 28px);margin:18px auto}.welcome{align-items:flex-start;gap:12px}.welcome h2{font-size:21px}.welcome-badge{font-size:9px}.board-head{padding:15px}.table th,.table td{padding:12px 15px}.table th:nth-child(2),.table td:nth-child(2){display:none}.total-bar{padding:16px;gap:14px}.total{font-size:23px}}
+:root{--ink:#17271f;--muted:#69796f;--navy:#123b2f;--blue:#11815a;--line:#e1eae2;--paper:#f4f8f3;--coral:#ffae63;--green:#11865b;--amber:#d98a00}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;font-family:Inter,"Segoe UI",system-ui,Arial,sans-serif;color:var(--ink);background:radial-gradient(ellipse at 80% 0,#e9f4e9 0,transparent 35%),var(--paper)}
+.head{min-height:88px;background:linear-gradient(112deg,#10382d,#165b43 58%,#197351);color:#fff;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px clamp(20px,5vw,76px);box-shadow:0 8px 28px #10382d2b;position:relative;z-index:1}
+.brand{display:flex;align-items:center;gap:14px;min-width:0}
+.mark{width:48px;height:48px;flex:0 0 48px;border-radius:16px;background:linear-gradient(145deg,#fff,#e8f6ee);display:grid;place-items:center;font-size:24px;box-shadow:0 8px 20px #071d163b}
+.brand h1{margin:0;font-size:clamp(18px,2vw,24px);letter-spacing:-.35px}
+.brand p{margin:4px 0 0;color:#c4e0d0;font-size:12px}
+.brand #storeLegal{font-weight:700;color:#e1f2e8}
+.who{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.cust{font-size:13px;font-weight:800;background:#ffffff14;border:1px solid #ffffff32;padding:8px 13px;border-radius:999px}
+.link{font-size:11px;color:#d0ead9;display:flex;align-items:center;gap:7px}
+.link:before{content:"";width:8px;height:8px;border-radius:50%;background:#50e091;box-shadow:0 0 0 4px #50e09125}
+.link.off:before{background:#ffbd52;box-shadow:0 0 0 4px #ffbd5225}
+.wrap{width:min(1480px,calc(100% - 64px));margin:28px auto}
+.card{background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:0 14px 38px #1a392011;overflow:hidden}
+.card-h{display:flex;justify-content:space-between;align-items:center;padding:19px 24px;border-bottom:1px solid var(--line);font-weight:800;font-size:15px}
+.card-h span{color:var(--muted);font-size:12px;font-weight:600}
+table{width:100%;border-collapse:collapse}
+th,td{padding:15px 24px;border-bottom:1px solid #edf2ed;text-align:left;font-size:15px}
+th{background:#f7faf6;color:#718077;font-size:11px;font-weight:800;letter-spacing:.45px;text-transform:uppercase}
+.r{text-align:right}
+.scroll{max-height:calc(100vh - 360px);overflow:auto}
+.tot{display:flex;justify-content:flex-end;align-items:baseline;gap:20px;padding:20px 24px;background:linear-gradient(90deg,#f6faf5,#eff7ef)}
+.tot small{color:#65766b;font-size:13px;font-weight:700}
+.tot b{font-size:clamp(30px,4vw,42px);color:var(--blue);font-weight:900;letter-spacing:-1px;font-variant-numeric:tabular-nums}
+.thanks,.note{text-align:center;color:#819087;font-size:13px;margin-top:16px}
+.pay{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(400px,.78fr);gap:26px;align-items:start}
+.qrcard{position:relative;isolation:isolate;overflow:hidden;background:radial-gradient(circle at 100% 0,#21815e 0,transparent 35%),linear-gradient(145deg,#10392e,#14543e 65%,#10392e);color:#fff;border-radius:26px;padding:clamp(22px,3vw,34px);box-shadow:0 26px 65px #0e3c2c3c}
+.qrcard:after{content:"";position:absolute;z-index:-1;inset:0;background-image:radial-gradient(#ffffff12 1px,transparent 1px);background-size:18px 18px;mask-image:linear-gradient(120deg,#000,transparent 65%)}
+.qrcard h2{margin:0;color:#c4e4d1;font-size:14px;font-weight:800;letter-spacing:.4px;text-transform:uppercase}
+.amt{font-size:clamp(38px,5vw,58px);font-weight:900;letter-spacing:-1.5px;margin-top:6px;font-variant-numeric:tabular-nums}
+.plate{position:relative;background:#fff;border-radius:22px;padding:clamp(18px,2.4vw,28px);margin:21px auto 20px;width:min(100%,390px);aspect-ratio:1/1;box-shadow:0 16px 36px #061b1428}
+.plate img{width:100%;height:100%;object-fit:contain;display:block}
+.plate i{position:absolute;width:30px;height:30px;border:4px solid var(--coral)}
+.plate i:nth-of-type(1){top:9px;left:9px;border-right:0;border-bottom:0;border-radius:9px 0 0 0}
+.plate i:nth-of-type(2){top:9px;right:9px;border-left:0;border-bottom:0;border-radius:0 9px 0 0}
+.plate i:nth-of-type(3){bottom:9px;left:9px;border-right:0;border-top:0;border-radius:0 0 0 9px}
+.plate i:nth-of-type(4){bottom:9px;right:9px;border-left:0;border-top:0;border-radius:0 0 9px 0}
+.qrfail{color:#f5bc72;font-size:13px;text-align:center;margin:30px 0;line-height:1.55}
+.qr-missing{margin:22px 0;padding:30px 22px;border:1px solid #ffffff24;border-radius:18px;background:#ffffff0e;text-align:center}
+.qr-missing span{display:grid;place-items:center;width:58px;height:58px;margin:0 auto 12px;border-radius:18px;background:#ffffff18;font-size:27px}
+.qr-missing b{font-size:18px}.qr-missing p{margin:8px 0 0;color:#d2e5d8;line-height:1.55;font-size:13px}
+.bank{display:grid;gap:10px;font-size:14px}
+.bank div{display:flex;justify-content:space-between;gap:14px;align-items:baseline;border-top:1px solid #ffffff25;padding-top:12px}
+.bank span{color:#b5d6c2;font-size:12px}
+.bank b{text-align:right;word-break:break-word}
+.bank .num{font-size:clamp(19px,2.2vw,25px);letter-spacing:1px;font-variant-numeric:tabular-nums}
+.wait{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:20px;color:#d7ebde;font-size:13px;font-weight:700}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--coral);animation:pulse 1.4s ease-out infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 #ffae6399}100%{box-shadow:0 0 0 14px #ffae6300}}
+.debtcard{margin-top:18px;background:linear-gradient(135deg,#fffaf3,#fff);border:1px solid #f1dfca;border-radius:20px;padding:22px;box-shadow:0 12px 28px #4c32100b}
+.debtcard h2{margin:0 0 16px;font-size:16px}
+.dgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.dgrid>div{padding:14px;border:1px solid #f2e6d8;border-radius:14px;background:#fff}
+.dgrid span{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+.dgrid b{font-size:18px;font-variant-numeric:tabular-nums}.dgrid .c{color:#c25723}
+.idle,.done{min-height:calc(100vh - 88px);display:grid;place-content:center;justify-items:center;gap:12px;text-align:center;padding:24px}
+.idle{color:#637369;font-size:20px;background:radial-gradient(ellipse at center,#fff 0,#f3f8f2 58%,transparent 80%)}
+.idle .ic,.done .emoji{width:78px;height:78px;border-radius:24px;background:linear-gradient(145deg,#e4f4e8,#cdebd5);display:grid;place-items:center;font-size:34px;box-shadow:0 12px 26px #1b694315}
+.done{background:radial-gradient(ellipse at center,#fff 0,#e9f7ed 62%,transparent 82%)}
+.done.debt{background:radial-gradient(ellipse at center,#fff 0,#fff2e6 62%,transparent 82%)}
+.done h2{margin:5px 0 0;font-size:clamp(27px,4vw,38px);letter-spacing:-.7px}
+.done .big{font-size:clamp(38px,6vw,58px);font-weight:900;color:var(--blue);font-variant-numeric:tabular-nums;letter-spacing:-1px}
+.done p{margin:0;color:#5b6a82;font-size:15px}
+.tick{width:122px;height:122px;fill:none;stroke:var(--green);stroke-width:3;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 8px 12px #11865b22)}
+.tick circle{stroke-dasharray:151;stroke-dashoffset:151;animation:draw .6s ease forwards}
+.tick path{stroke-dasharray:40;stroke-dashoffset:40;animation:draw .4s .5s ease forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+@media(min-width:1500px){.wrap{margin:38px auto}.pay{gap:34px}.plate{width:min(100%,430px)}}
+@media(max-width:900px){.head{padding:12px 18px}.wrap{width:calc(100% - 28px);margin:18px auto}.pay{grid-template-columns:1fr}.qrcard{order:-1}.plate{width:min(100%,360px)}th:nth-child(2),td:nth-child(2){display:none}.dgrid{grid-template-columns:1fr 1fr}.brand h1{font-size:18px}}
+@media(max-width:540px){.head{min-height:74px;padding:10px 13px}.mark{width:40px;height:40px;flex-basis:40px;border-radius:13px;font-size:21px}.brand{gap:9px}.brand p{font-size:10px}.who{gap:5px}.cust{font-size:11px;padding:6px 10px}.link{font-size:9px}.wrap{width:calc(100% - 20px);margin:12px auto}.card{border-radius:16px}.card-h{padding:14px 15px;font-size:13px}th,td{padding:12px 14px;font-size:12px}.tot{padding:15px}.qrcard{border-radius:20px;padding:20px}.plate{width:min(100%,300px);padding:18px}.bank{font-size:12px}.dgrid{gap:8px}.dgrid>div{padding:11px}.dgrid b{font-size:15px}.done,.idle{min-height:calc(100vh - 74px)}}
+@media(prefers-reduced-motion:reduce){.dot,.tick circle,.tick path{animation:none;stroke-dashoffset:0}}
 </style>
 </head>
 <body>
-<div class="head"><div class="brand"><div class="brand-mark">🛒</div><div><h1 id="storeName">TẠP HÓA POS</h1><p id="storeLegal"></p><p id="storeAddress">Mua sắm nhanh - Giá tốt mỗi ngày</p></div></div><div id="customer" class="customer">Khách lẻ</div></div>
-<div id="content" class="wrap"><div class="empty">Mời khách hàng chọn sản phẩm</div></div>
-<div id="qrContainer" class="qr-container">
-    <div class="qr-label">📱 Quét mã QR để thanh toán</div>
-    <img id="qrImage" alt="Mã QR" />
-    <div class="bank-info" id="qrBankInfo"></div>
+<div class="head">
+  <div class="brand"><div class="mark">🛒</div><div><h1 id="storeName">TẠP HÓA POS</h1><p id="storeLegal"></p><p id="storeAddress">Mua sắm nhanh - Giá tốt mỗi ngày</p></div></div>
+  <div class="who"><div id="customer" class="cust">Khách lẻ</div><div id="link" class="link off">Đang chờ kết nối với quầy…</div></div>
 </div>
+<div id="content"><div class="idle"><div class="ic">🛒</div>Mời quý khách chọn sản phẩm</div></div>
 
 <script>
-function money(n){return new Intl.NumberFormat("vi-VN",{style:"currency",currency:"VND",maximumFractionDigits:0}).format(Number(n)||0)}
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const money=n=>new Intl.NumberFormat("vi-VN",{style:"currency",currency:"VND",maximumFractionDigits:0}).format(Number(n)||0);
+const group=s=>String(s||"").replace(/\s+/g,"").replace(/(.{4})(?=.)/g,"$1 ");
+let lastTs=0,lastSeen=0,sig="";
 
+function paintLink(){const ok=Date.now()-lastSeen<12000,el=$("link");el.className="link"+(ok?"":" off");el.textContent=ok?"Đã kết nối với quầy":"Đang chờ kết nối với quầy…";}
+setInterval(paintLink,2000);
+
+function qrCard(d){
+  return `<aside class="qrcard"><h2>Quét mã để thanh toán</h2><div class="amt">${money(d.total)}</div>
+  <div class="plate"><i></i><i></i><i></i><i></i><img id="qrImg" alt="Mã QR thanh toán" src="${esc(d.qrData)}" data-full="${esc(d.qrFull||"")}"></div>
+  <div class="bank"><div><span>Ngân hàng</span><b>${esc(d.bankName)}</b></div><div><span>Số tài khoản</span><b class="num">${esc(group(d.bankNumber))}</b></div><div><span>Chủ tài khoản</span><b>${esc(d.bankOwner)}</b></div>${d.payRef?`<div><span>Nội dung</span><b>${esc(d.payRef)}</b></div>`:""}</div>
+  <div class="wait"><span class="dot"></span>Đang chờ thanh toán…</div></aside>`;
+}
+function qrUnavailableCard(d){
+  return `<aside class="qrcard"><h2>Thanh toán chuyển khoản</h2><div class="amt">${money(d.total)}</div>
+  <div class="qr-missing"><span>▦</span><b>Chưa có mã QR</b><p>Quầy chưa cấu hình tài khoản nhận. Vui lòng báo nhân viên để được hỗ trợ.</p></div>
+  ${d.bankName||d.bankNumber?`<div class="bank"><div><span>Ngân hàng</span><b>${esc(d.bankName)}</b></div><div><span>Số tài khoản</span><b class="num">${esc(group(d.bankNumber))}</b></div><div><span>Chủ tài khoản</span><b>${esc(d.bankOwner)}</b></div></div>`:""}</aside>`;
+}
+function debtCard(b){
+  return `<aside class="debtcard"><h2>Ghi nợ cho ${esc(b.name)}</h2><div class="dgrid"><div><span>Nợ cũ</span><b>${money(b.previous)}</b></div><div><span>Trả trước</span><b>${money(b.paidNow)}</b></div><div><span>Ghi nợ đơn này</span><b class="c">${money(b.add)}</b></div><div><span>Tổng nợ sau đơn</span><b>${money(b.after)}</b></div></div></aside>`;
+}
+function view(d){
+  const f=d.flash,s=d.store||{};
+  if(f){
+    if(f.type==="debt"&&f.debt)return `<div class="done debt"><div class="emoji">📒</div><h2>Đã ghi nợ</h2><div class="big">${money(f.debt.add)}</div><p>${esc(f.debt.name)} · Tổng nợ hiện tại ${money(f.debt.after)}</p><p>Cảm ơn quý khách!</p></div>`;
+    return `<div class="done"><svg class="tick" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l8 8 14-16"/></svg><h2>Thanh toán thành công</h2><div class="big">${money(f.total)}</div><p>${esc(s.businessSlogan||"Cảm ơn quý khách và hẹn gặp lại!")}</p></div>`;
+  }
+  const items=Array.isArray(d.items)?d.items:[];
+  if(!items.length)return `<div class="idle"><div class="ic">🛒</div>Mời quý khách chọn sản phẩm</div>`;
+  const rows=items.map(i=>`<tr><td><b>${esc(i.name||"Sản phẩm")}</b></td><td>${esc(i.unit||"Cái")}</td><td>${Number(i.qty)||0}</td><td class="r">${money((Number(i.qty)||0)*(Number(i.price)||0))}</td></tr>`).join("");
+  const disc=Number(d.discount)>0?`<tr><td colspan="3">Giảm giá</td><td class="r">-${money(d.discount)}</td></tr>`:"";
+  const cart=`<div class="card"><div class="card-h">Chi tiết giỏ hàng<span>${items.length} mặt hàng</span></div><div class="scroll"><table><thead><tr><th>Tên hàng</th><th>Đơn vị</th><th>Số lượng</th><th class="r">Thành tiền</th></tr></thead><tbody>${rows}${disc}</tbody></table></div><div class="tot"><small>Tổng thanh toán</small><b>${money(d.total)}</b></div></div>`;
+  const thanks=`<div class="thanks">${esc(s.businessSlogan||"Cảm ơn quý khách và hẹn gặp lại!")}</div>`;
+  if(d.paymentMethod==="transfer"&&Number(d.total)>0)return `<div class="wrap pay"><div>${cart}${thanks}</div>${d.qrData?qrCard(d):qrUnavailableCard(d)}</div>`;
+  if(d.paymentMethod==="debt"&&d.debt)return `<div class="wrap">${cart}${debtCard(d.debt)}${thanks}</div>`;
+  return `<div class="wrap">${cart}${d.paymentMethod==="cash"?'<div class="note">Thanh toán tiền mặt tại quầy</div>':""}${thanks}</div>`;
+}
+function bindQr(){
+  const img=$("qrImg");if(!img)return;
+  img.onerror=()=>{const full=img.dataset.full;if(full&&img.src!==full){img.src=full;return;}const p=document.createElement("p");p.className="qrfail";p.textContent="Không tải được mã QR. Quý khách vui lòng chuyển khoản theo thông tin bên dưới.";img.replaceWith(p);};
+}
 function render(d){
-    try {
-        const customerEl = document.querySelector("#customer");
-        if (customerEl) customerEl.textContent = d.customer || "Khách lẻ";
-
-        const content = document.querySelector("#content");
-        const store = d.store || {};
-        document.getElementById("storeName").textContent = store.storeName || "TẠP HÓA POS";
-        document.getElementById("storeLegal").textContent = [store.businessName ? `HKD: ${store.businessName}` : "", store.taxCode ? `MST: ${store.taxCode}` : ""].filter(Boolean).join(" · ");
-        document.getElementById("storeAddress").textContent = [store.businessAddress, store.businessPhone].filter(Boolean).join(" · ") || "Mua sắm nhanh - Giá tốt mỗi ngày";
-        
-        if (!d.items || !Array.isArray(d.items) || !d.items.length) {
-            content.innerHTML = '<div class="empty">Mời khách hàng chọn sản phẩm</div>';
-            document.getElementById("qrContainer").style.display = "none";
-            return;
-        }
-
-        let html = `<div class="welcome"><div><h2>Hóa đơn tạm tính</h2><p>Vui lòng kiểm tra sản phẩm và số tiền trước khi thanh toán.</p></div><div class="welcome-badge">${d.items.length} mặt hàng</div></div><div class="order-board"><div class="board-head"><h3>Chi tiết giỏ hàng</h3><span>Đơn vị tính theo sản phẩm</span></div><table class="table"><thead><tr><th>Tên hàng</th><th>Đơn vị</th><th>Số lượng</th><th class="right">Thành tiền</th></tr></thead><tbody>`;
-        
-        d.items.forEach(i => {
-            const itemTotal = (i.qty || 0) * (i.price || 0);
-            html += `<tr><td><b>${i.name ? String(i.name).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) : "Sản phẩm"}</b></td><td>${i.unit || "Cái"}</td><td>${i.qty || 0}</td><td class="right">${money(itemTotal)}</td></tr>`;
-        });
-        
-        html += `</tbody></table><div class="total-bar"><span class="total-label">TỔNG THANH TOÁN</span><div class="total">${money(d.total || 0)}</div></div></div><div class="thanks">${store.businessSlogan || "Cảm ơn quý khách và hẹn gặp lại!"}</div>`;
-        content.innerHTML = html;
-
-        // Xử lý QR
-        const qrContainer = document.getElementById("qrContainer");
-        const qrImg = document.getElementById("qrImage");
-        const qrInfo = document.getElementById("qrBankInfo");
-
-        if (d.paymentMethod === "transfer" && d.qrData && d.total > 0) {
-            qrContainer.style.display = "block";
-            qrImg.src = d.qrData;
-            qrImg.onerror = function() {
-                qrImg.style.display = "none";
-                qrInfo.textContent = "Không thể tải mã QR, vui lòng kiểm tra kết nối.";
-            };
-            qrInfo.textContent = `Chuyển khoản đến ${store.bankOwner || d.bankOwner || ''} - ${store.bankName || d.bankName || ''} - Số tiền: ${money(d.total)}`;
-        } else {
-            qrContainer.style.display = "none";
-        }
-    } catch(e) {
-        console.error("Render error:", e);
-        const content = document.querySelector("#content");
-        if (content) content.innerHTML = '<div class="empty">Có lỗi khi hiển thị dữ liệu</div>';
-    }
+  if(!d||typeof d!=="object")return;
+  if(d.ts&&d.ts<lastTs)return;
+  lastTs=d.ts||lastTs;lastSeen=Math.max(lastSeen,Number(d.ts)||0);paintLink();
+  if(d.flash&&d.flash.until&&d.flash.until<Date.now())d={...d,flash:null};
+  const s=d.store||{};
+  $("storeName").textContent=s.storeName||"TẠP HÓA POS";
+  $("storeLegal").textContent=[s.businessName?`HKD: ${s.businessName}`:"",s.taxCode?`MST: ${s.taxCode}`:""].filter(Boolean).join(" · ");
+  $("storeAddress").textContent=[s.businessAddress,s.businessPhone].filter(Boolean).join(" · ")||"Mua sắm nhanh - Giá tốt mỗi ngày";
+  $("customer").textContent=d.customer||"Khách lẻ";
+  const key=JSON.stringify([d.items,d.total,d.discount,d.paymentMethod,d.qrData,d.debt,d.flash,s]);
+  if(key===sig)return;
+  sig=key;
+  try{$("content").innerHTML=view(d);bindQr();}catch(e){console.error("Render error:",e);$("content").innerHTML='<div class="idle">Có lỗi khi hiển thị dữ liệu</div>';}
 }
 
-// Lấy dữ liệu từ localStorage
-try {
-    let d = JSON.parse(localStorage.getItem("thpos_customer_screen") || "null");
-    if (d) render(d);
-} catch(e) {}
-
-// Lắng nghe sự kiện storage (từ tab khác)
-window.addEventListener("storage", function(e) {
-    if (e.key === "thpos_customer_screen" && e.newValue) {
-        try {
-            render(JSON.parse(e.newValue));
-        } catch(err) {}
-    }
-});
-
-// Lắng nghe message từ cửa sổ chính (nếu có)
-window.addEventListener("message", function(e) {
-    if (e.data && e.data.type === "pos-update" && e.data.data) {
-        render(e.data.data);
-    }
-});
-
+// Nhận dữ liệu từ quầy: localStorage (tab khác) + BroadcastChannel + postMessage; quầy gửi lại mỗi 4 giây
+try{render(JSON.parse(localStorage.getItem("thpos_customer_screen")||"null"));}catch(_){}
+window.addEventListener("storage",e=>{if(e.key==="thpos_customer_screen"&&e.newValue){try{render(JSON.parse(e.newValue));}catch(_){}}});
+try{const ch=new BroadcastChannel("thpos_customer_screen");ch.onmessage=e=>{if(e.data&&e.data.type==="pos-update")render(e.data.data);};ch.postMessage({type:"customer-ready"});}catch(_){}
+window.addEventListener("message",e=>{if(e.data&&e.data.type==="pos-update"&&e.data.data)render(e.data.data);});
 window.opener?.postMessage({type:"customer-ready"},"*");
 </script>
 </body>
