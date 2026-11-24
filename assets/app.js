@@ -6,7 +6,7 @@
 // ----- PHẦN 1: IMPORT VÀ KHỞI TẠO -----
 import {
   auth, onAuthState, logoutUser,
-  getProducts, getOrders, commitSale, receiveStock,
+  getOrders, commitSale, receiveStock,
   addProduct, updateProduct, deleteProductFirebase,
   getCustomers, addCustomer, updateCustomer, deleteCustomer,
   listenProducts, listenOrders, listenCustomers,
@@ -45,6 +45,7 @@ const state = {
   dashboardPeriod: "day",
   storeSettings: {},
   productByBarcode: new Map(),
+  productById: new Map(),
   unitCache: new WeakMap(),
   orderDrafts: [{ id: "draft-1", label: "Đơn 1", cart: [], customerId: "", payment: "cash", discount: 0, debtPaidNow: 0, payRef: "" }],
   activeDraftId: "draft-1",
@@ -226,7 +227,7 @@ function setPage(page) {
 
   if (page === "sale") {
     renderSale();
-    setTimeout(() => { renderSale(); $("barcodeInput")?.focus(); }, 80);
+    requestAnimationFrame(() => $("barcodeInput")?.focus());
   }
   if (page === "products") renderProducts();
   if (page === "inventory") renderInventory();
@@ -252,19 +253,25 @@ function debounce(fn, delay = 120) {
 }
 function rebuildProductIndex(products) {
   state.productByBarcode = new Map();
+  state.productById = new Map();
   products.forEach(product => {
     const barcode = normalizeBarcode(product.barcode);
     if (barcode) state.productByBarcode.set(barcode, product);
+    state.productById.set(product.id, product);
   });
 }
 function productsCacheKey() {
   return `thpos_products_cache_${auth.currentUser?.uid || "guest"}`;
 }
+let productsCacheTimer;
 function setProducts(products) {
   state.products = Array.isArray(products) ? products : [];
   rebuildProductIndex(state.products);
   state.unitCache = new WeakMap();
-  try { localStorage.setItem(productsCacheKey(), JSON.stringify(state.products)); } catch (_) { }
+  clearTimeout(productsCacheTimer);
+  productsCacheTimer = setTimeout(() => {
+    try { localStorage.setItem(productsCacheKey(), JSON.stringify(state.products)); } catch (_) { }
+  }, 150);
 }
 function loadCachedProducts() {
   try {
@@ -274,6 +281,7 @@ function loadCachedProducts() {
   return false;
 }
 function findProduct(barcode) { return state.productByBarcode.get(normalizeBarcode(barcode)); }
+function findProductById(id) { return state.productById.get(id); }
 function createEan13() {
   let code;
   do {
@@ -323,7 +331,7 @@ function removeCart(i) { state.cart.splice(i, 1); renderCart(); }
 function changeQty(i, d) {
   const x = state.cart[i];
   if (!x) return;
-  const p = state.products.find(p => p.id === x.productId);
+  const p = findProductById(x.productId);
   const n = x.qty + d;
   if (n <= 0) { removeCart(i); return; }
   const other = reservedBaseQty(x.productId, { draftId: state.activeDraftId, index: i });
@@ -335,7 +343,7 @@ function changeQty(i, d) {
 
 function changeUnit(i, name) {
   const x = state.cart[i];
-  const p = state.products.find(p => p.id === x.productId);
+  const p = findProductById(x.productId);
   const u = unitsOf(p).find(u => u.name === name);
   if (!u) return;
   const other = reservedBaseQty(x.productId, { draftId: state.activeDraftId, index: i });
@@ -364,7 +372,7 @@ function renderCart() {
           <button class="qty-btn" data-act="dec" data-i="${i}">−</button>
           <b>${x.qty}</b>
           <button class="qty-btn" data-act="inc" data-i="${i}">＋</button>
-          <select class="unit-select" data-act="unit" data-i="${i}">${unitsOf(state.products.find(p => p.id === x.productId) || {}).map(u => `<option ${u.name === x.unit ? 'selected' : ''}>${esc(u.name)}</option>`).join("")}</select>
+          <select class="unit-select" data-act="unit" data-i="${i}">${unitsOf(findProductById(x.productId) || {}).map(u => `<option ${u.name === x.unit ? 'selected' : ''}>${esc(u.name)}</option>`).join("")}</select>
           <button class="danger" data-act="remove" data-i="${i}">X</button>
         </div>
       </div>
@@ -577,16 +585,16 @@ function renderSale() {
 $("productGrid")?.addEventListener("click", event => {
   if (!event.target.closest("[data-retry-products]")) return;
   renderSale();
-  loadProductsNow();
 });
-$("productGrid")?.addEventListener("click", e => { const b = e.target.closest("[data-pid]"); if (b) { const p = state.products.find(x => x.id === b.dataset.pid); if (p) addCart(p); } });
+$("productGrid")?.addEventListener("click", e => { const b = e.target.closest("[data-pid]"); if (b) { const p = findProductById(b.dataset.pid); if (p) addCart(p); } });
 $("categoryBar")?.addEventListener("click", e => { const b = e.target.closest("[data-cat]"); if (b) { state.category = b.dataset.cat; renderSale(); } });
-$("productSearch")?.addEventListener("input", renderSale);
+const renderSaleSearch = debounce(renderSale, 120);
+$("productSearch")?.addEventListener("input", renderSaleSearch);
 
 // ----- PHẦN 8: RECEIVE / INVENTORY LOGIC -----
 function selectReceiveProduct(id) {
   state.receiveProductId = id;
-  const p = state.products.find(x => x.id === id);
+  const p = findProductById(id);
   if (!p) return;
   const s = $("receiveProduct");
   if (s) { s.value = id; renderReceiveUnits(); }
@@ -594,7 +602,7 @@ function selectReceiveProduct(id) {
 }
 
 function renderReceiveUnits() {
-  const p = state.products.find(x => x.id === state.receiveProductId);
+  const p = findProductById(state.receiveProductId);
   if (!p) return;
   $("receiveUnit").innerHTML = unitsOf(p).map(u => `<option value="${esc(u.name)}">${esc(u.name)} (×${u.factor})</option>`).join("");
 }
@@ -647,14 +655,20 @@ function renderInventory() {
   if (state.receiveProductId) { $("receiveProduct").value = state.receiveProductId; renderReceiveUnits(); }
 }
 $("inventorySearch")?.addEventListener("input", renderInventory);
+$("inventoryTable")?.addEventListener("click", e => {
+  const ed = e.target.closest("[data-edit]");
+  if (!ed) return;
+  const product = findProductById(ed.dataset.edit);
+  if (product) openProductModal(product);
+});
 $("receiveProduct")?.addEventListener("change", e => selectReceiveProduct(e.target.value));
 $("receiveUnit")?.addEventListener("change", () => {
-  const p = state.products.find(x => x.id === state.receiveProductId);
+  const p = findProductById(state.receiveProductId);
   const u = unitsOf(p || {}).find(x => x.name === $("receiveUnit").value);
   if (u) $("receiveCost").value = u.cost || 0;
 });
 $("receiveBtn")?.addEventListener("click", async () => {
-  const p = state.products.find(x => x.id === $("receiveProduct").value);
+  const p = findProductById($("receiveProduct").value);
   if (!p) { toast("Hãy chọn sản phẩm.", false); return; }
   const u = unitsOf(p).find(x => x.name === $("receiveUnit").value) || preferredUnit(p);
   const qty = Number($("receiveQty").value) || 0;
@@ -690,11 +704,11 @@ $("productsTable")?.addEventListener("click", e => {
   const del = e.target.closest("[data-delete]");
   const pl = e.target.closest("[data-print-label]");
   if (pl) {
-    const p = state.products.find(x => x.id === pl.dataset.printLabel);
+    const p = findProductById(pl.dataset.printLabel);
     if (p) { const q = prompt(`In bao nhiêu tem cho "${p.name}"?`, "1"); if (q !== null) printBarcodeLabels({ barcode: p.barcode, name: p.name, price: preferredUnit(p).price }, q, labelCfg()); }
     return;
   }
-  if (ed) openProductModal(state.products.find(p => p.id === ed.dataset.edit));
+  if (ed) openProductModal(findProductById(ed.dataset.edit));
   if (del) {
     e.preventDefault();
     e.stopPropagation();
@@ -776,7 +790,7 @@ function openProductModal(product = {}) {
       </label>
       <label>Cảnh báo tồn<input id="mLow" type="number" min="0" value="${Number(product.lowStock || 0)}"></label>
       ${slotMarkup}
-      <label>Tồn cơ sở<input id="mStock" type="number" min="0" value="${Number(product.stockBase || 0)}" ${isEdit ? 'disabled' : ''}></label>
+      <label>Tồn cơ sở<input id="mStock" type="number" min="0" step="1" value="${Number(product.stockBase || 0)}"></label>
     </div>
     <div class="form-actions"><button class="soft" id="cancelModal">Hủy</button><button class="primary" id="saveProductModal">Lưu sản phẩm</button></div>
   `;
@@ -834,9 +848,14 @@ function openProductModal(product = {}) {
     const barcode = normalizeBarcode($("mBarcode").value);
     const name = $("mName").value.trim();
     if (!barcode || !name) { toast("Barcode và tên sản phẩm là bắt buộc.", false); return; }
-    const duplicate = state.products.find(p => normalizeBarcode(p.barcode) === barcode && p.id !== product.id);
-    if (duplicate) { toast("Barcode đã tồn tại.", false); return; }
-    const d = { barcode, name, category: $("mCategory").value.trim(), lowStock: Number($("mLow").value) || 0, stockBase: isEdit ? Number(product.stockBase) || 0 : Number($("mStock").value) || 0, active: true };
+    const duplicate = findProduct(barcode);
+    if (duplicate && duplicate.id !== product.id) {
+      toast("Barcode đã tồn tại.", false);
+      return;
+    }
+    const stockBaseInput = Number($("mStock").value);
+    if (!Number.isFinite(stockBaseInput) || stockBaseInput < 0) { toast("Tồn cơ sở phải là số không âm.", false); return; }
+    const d = { barcode, name, category: $("mCategory").value.trim(), lowStock: Number($("mLow").value) || 0, stockBase: Math.floor(stockBaseInput), active: true };
     for (let i = 1; i <= 3; i++) {
       const visible = getVisibleUnitSlots()[i - 1]?.enabled ?? true;
       if (!visible) {
@@ -1745,10 +1764,13 @@ function startListeners() {
   loadCachedProducts();
   function applyProducts(ps) {
     setProducts(ps);
-    const validIds = new Set(state.products.map(product => product.id));
     state.orderDrafts.forEach(draft => {
-      draft.cart = draft.cart.filter(item => validIds.has(item.productId));
-      draft.cart.forEach(x => { const p = state.products.find(p => p.id === x.productId); const u = p && unitsOf(p).find(u => u.name === x.unit); if (u) { x.price = u.price; x.cost = u.cost; x.name = p.name; } });
+      draft.cart = draft.cart.filter(item => state.productById.has(item.productId));
+      draft.cart.forEach(x => {
+        const p = findProductById(x.productId);
+        const u = p && unitsOf(p).find(unit => unit.name === x.unit);
+        if (u) { x.price = u.price; x.cost = u.cost; x.name = p.name; }
+      });
     });
     state.cart = activeDraft()?.cart || [];
     renderCart();
@@ -1760,13 +1782,6 @@ function startListeners() {
   }
   listenProducts(ps => {
     applyProducts(ps);
-  });
-  loadProductsNow().catch(error => {
-    if (state.page === "sale") {
-      const grid = $("productGrid");
-      if (grid) grid.innerHTML = '<div class="product-loading product-error">Không tải được sản phẩm. Hãy tải lại trang.</div>';
-    }
-    console.error("Product load error", error);
   });
   listenOrders(os => { state.orders = os; if (state.page === "orders") renderOrdersV53(); if (state.page === "dashboard") renderDashboardV53(); if (state.page === "reports") renderReportsV53(); if (state.page === "customers") renderCustomerDetail(); });
   listenCustomers(cs => { state.customers = cs; renderCustomerSelect(); renderCart(); if (state.page === "customers") { renderCustomers(); renderCustomerDetail(); } if (state.page === "reports") renderReportsV53(); });
@@ -1786,19 +1801,6 @@ function startListeners() {
   }, 60000);
   paintSync();
 }
-async function loadProductsNow() {
-  const products = await getProducts();
-  if (products.length) {
-    setProducts(products);
-    if (state.page === "sale") renderSale();
-    if (state.page === "products") renderProducts();
-    if (state.page === "inventory") renderInventory();
-  } else if (state.page === "sale" && !state.products.length) {
-    renderSale();
-  }
-  return products;
-}
-
 // ----- PHẦN 24: ON AUTH STATE -----
 onAuthState(async user => {
   try {
