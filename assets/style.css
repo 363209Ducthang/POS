@@ -873,6 +873,18 @@ tbody tr:hover{background:#f7faf7}
 .qty-btn:hover{background:#e7f4ea;border-color:#b6d9bf}
 .unit-select{padding:7px 9px;max-width:110px}
 .checkout{padding:16px 19px 19px;background:linear-gradient(180deg,#fff,#f9fcf9);border-top-color:#e5ece5}
+.category-section td{padding:11px 14px;background:#f4f7fb;color:#344054;font-weight:800;border-top:1px solid #e6ebf2}
+.category-section td span{margin-left:8px;color:#8590a3;font-size:10px;font-weight:600}
+.customer-picker-search{display:block;font-size:11px;font-weight:800;color:#526079;margin:16px 0 10px}
+.customer-picker-search input{display:block;width:100%;margin-top:7px;padding:11px;border:1px solid var(--line);border-radius:9px}
+.customer-picker-list{max-height:55vh;overflow:auto;border:1px solid var(--line);border-radius:10px}
+.customer-picker-option{display:flex;width:100%;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;text-align:left;background:#fff;border:0;border-bottom:1px solid #edf0f5;cursor:pointer}
+.customer-picker-option:last-child{border-bottom:0}
+.customer-picker-option:hover,.customer-picker-option.active{background:#f2f7ff}
+.customer-picker-option b,.customer-picker-option small{display:block}
+.customer-picker-option b{font-size:12px;color:#26344d}
+.customer-picker-option small{margin-top:4px;color:#8490a5;font-size:10px}
+.customer-picker-option strong{color:#245dd4;font-size:10px;white-space:nowrap}
 .summary,.total{font-size:13px}
 .summary input{border-radius:10px}
 .total{border-color:#dfe9df}

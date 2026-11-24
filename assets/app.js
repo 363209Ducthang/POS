@@ -569,7 +569,11 @@ function renderSale() {
   }
   const q = ($("productSearch")?.value || "").toLowerCase();
   const cat = state.category;
-    const ps = state.products.filter(p => (cat === "all" || p.category === cat) && (!q || String(p.name || "").toLowerCase().includes(q) || normalizeBarcode(p.barcode).includes(q)));
+  const ps = state.products.filter(p => {
+    const category = String(p.category || "").trim();
+    const matchesCategory = cat === "all" || (cat === "__uncategorized__" ? !category : category === cat);
+    return matchesCategory && (!q || String(p.name || "").toLowerCase().includes(q) || normalizeBarcode(p.barcode).includes(q));
+  });
   grid.innerHTML = ps.map(p => {
     const u = preferredUnit(p);
     return `<button class="product-card" data-pid="${p.id}" style="text-align:left">
@@ -579,8 +583,9 @@ function renderSale() {
       <div class="stock">Tồn: ${Number(p.stockBase) || 0}</div>
     </button>`;
   }).join("") || '<div class="product-loading">Không tìm thấy sản phẩm phù hợp.</div>';
-  const cats = [...new Set(state.products.map(p => p.category).filter(Boolean))];
-  $("categoryBar").innerHTML = `<button class="category-btn ${state.category === 'all' ? 'active' : ''}" data-cat="all">Tất cả</button>` + cats.map(c => `<button class="category-btn ${state.category === c ? 'active' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join("");
+  const cats = [...new Set(state.products.map(p => String(p.category || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi"));
+  const hasUncategorized = state.products.some(p => !String(p.category || "").trim());
+  $("categoryBar").innerHTML = `<button class="category-btn ${state.category === 'all' ? 'active' : ''}" data-cat="all">Tất cả</button>` + cats.map(c => `<button class="category-btn ${state.category === c ? 'active' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join("") + (hasUncategorized ? `<button class="category-btn ${state.category === '__uncategorized__' ? 'active' : ''}" data-cat="__uncategorized__">Chưa có danh mục</button>` : "");
 }
 $("productGrid")?.addEventListener("click", event => {
   if (!event.target.closest("[data-retry-products]")) return;
@@ -630,23 +635,41 @@ function lowState(p) {
   return { low: base <= thresholdBase, stockBase: base, display: stockDisplay(p), threshold: largest ? `${thresholdUnits} ${largest.name}` : `${thresholdUnits}` };
 }
 
+function productsByCategory(products) {
+  const groups = new Map();
+  products.forEach(product => {
+    const category = String(product.category || "").trim();
+    if (!groups.has(category)) groups.set(category, []);
+    groups.get(category).push(product);
+  });
+  return [...groups.entries()]
+    .sort(([a], [b]) => !a ? 1 : !b ? -1 : a.localeCompare(b, "vi"))
+    .map(([category, items]) => ({
+      category: category || "Chưa có danh mục",
+      products: items.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "vi"))
+    }));
+}
+
 function renderInventory() {
   const q = ($("inventorySearch")?.value || "").toLowerCase();
   const ps = state.products.filter(p => !q || String(p.name || "").toLowerCase().includes(q) || normalizeBarcode(p.barcode).includes(q));
-    $("inventoryTable").innerHTML = ps.map(p => {
-    const u = preferredUnit(p), ls = lowState(p), low = ls.low;
-    return `<tr>
-      <td>${esc(p.barcode || "—")}</td>
-      <td><b>${esc(p.name)}</b></td>
-      <td>${money(u.price)}</td>
-      <td>${esc(u.name)}</td>
-      <td>${esc(p.preferredUnit || u.name)}</td>
-      <td>${esc(ls.display)}</td>
-      <td>${u.factor} cơ sở/${esc(u.name)}</td>
-      <td class="${low ? 'warning' : 'ok'}">${low ? 'Cần nhập' : 'Ổn'}</td>
-      <td><button class="pencil" data-edit="${p.id}">✎</button></td>
-    </tr>`;
-  }).join("");
+  $("inventoryTable").innerHTML = productsByCategory(ps).map(group => `
+    <tr class="category-section"><td colspan="9">${esc(group.category)} <span>${group.products.length} mặt hàng</span></td></tr>
+    ${group.products.map(p => {
+      const u = preferredUnit(p), ls = lowState(p), low = ls.low;
+      return `<tr>
+        <td>${esc(p.barcode || "—")}</td>
+        <td><b>${esc(p.name)}</b></td>
+        <td>${money(u.price)}</td>
+        <td>${esc(u.name)}</td>
+        <td>${esc(p.preferredUnit || u.name)}</td>
+        <td>${esc(ls.display)}</td>
+        <td>${u.factor} cơ sở/${esc(u.name)}</td>
+        <td class="${low ? 'warning' : 'ok'}">${low ? 'Cần nhập' : 'Ổn'}</td>
+        <td><button class="pencil" data-edit="${esc(p.id)}">✎</button></td>
+      </tr>`;
+    }).join("")}
+  `).join("") || '<tr><td colspan="9" class="empty-detail">Không tìm thấy mặt hàng.</td></tr>';
   $("invProductCount").textContent = state.products.length;
   $("invStockCount").textContent = state.products.reduce((a, p) => a + (Number(p.stockBase) || 0), 0);
   $("invStockValue").textContent = money(state.products.reduce((a, p) => a + (Number(p.stockBase || 0) * (Number(preferredUnit(p).cost || 0) / (Number(preferredUnit(p).factor) || 1))), 0));
@@ -684,19 +707,22 @@ $("receiveBtn")?.addEventListener("click", async () => {
 function renderProducts() {
   const q = (state.productFilter || "").toLowerCase();
   const ps = state.products.filter(p => !q || String(p.name || "").toLowerCase().includes(q) || normalizeBarcode(p.barcode).includes(q));
-    $("productsTable").innerHTML = ps.map(p => {
-    const u = preferredUnit(p);
-    return `<tr>
-      <td>${esc(p.barcode || "—")}</td>
-      <td><b>${esc(p.name)}</b></td>
-      <td>${esc(u.name)}</td>
-      <td>${money(u.price)}</td>
-      <td>${money(u.cost)}</td>
-      <td>${Number(p.stockBase) || 0}</td>
-      <td>${p.active === false ? '<span class="warning">Ngừng bán</span>' : '<span class="ok">Đang bán</span>'}</td>
-      <td><button class="pencil" data-edit="${p.id}">✎</button> <button class="soft" data-print-label="${p.id}" title="In tem barcode">🖨</button> <button class="delete-btn" data-delete="${p.id}">×</button></td>
-    </tr>`;
-  }).join("");
+  $("productsTable").innerHTML = productsByCategory(ps).map(group => `
+    <tr class="category-section"><td colspan="8">${esc(group.category)} <span>${group.products.length} mặt hàng</span></td></tr>
+    ${group.products.map(p => {
+      const u = preferredUnit(p);
+      return `<tr>
+        <td>${esc(p.barcode || "—")}</td>
+        <td><b>${esc(p.name)}</b></td>
+        <td>${esc(u.name)}</td>
+        <td>${money(u.price)}</td>
+        <td>${money(u.cost)}</td>
+        <td>${Number(p.stockBase) || 0}</td>
+        <td>${p.active === false ? '<span class="warning">Ngừng bán</span>' : '<span class="ok">Đang bán</span>'}</td>
+        <td><button class="pencil" data-edit="${esc(p.id)}">✎</button> <button class="soft" data-print-label="${esc(p.id)}" title="In tem barcode">🖨</button> <button class="delete-btn" data-delete="${esc(p.id)}">×</button></td>
+      </tr>`;
+    }).join("")}
+  `).join("") || '<tr><td colspan="8" class="empty-detail">Không tìm thấy mặt hàng.</td></tr>';
 }
 $("productsSearch")?.addEventListener("input", e => { state.productFilter = e.target.value; renderProducts(); });
 $("productsTable")?.addEventListener("click", e => {
@@ -1194,7 +1220,7 @@ $("orderSearch")?.addEventListener("input", debounce(renderOrders));
 // ----- PHẦN 15: CUSTOMERS PAGE -----
 function renderCustomers() {
   const q = ($("customerPageSearch")?.value || "").toLowerCase();
-  $("customerList").innerHTML = state.customers.filter(c => !q || String(c.name || "").toLowerCase().includes(q) || String(c.phone || "").includes(q)).map(c => `
+  $("customerList").innerHTML = sortedCustomers(state.customers).filter(c => !q || String(c.name || "").toLowerCase().includes(q) || String(c.phone || "").includes(q)).map(c => `
     <div class="customer-row ${state.selectedCustomer === c.id ? "active" : ""}" data-cust-open="${c.id}">
       <div><b>${esc(c.name || "Không tên")}</b><small>${esc(c.phone || "")}</small></div>
       <div class="cust-right">${Number(c.debt) > 0 ? `<span class="debt-pill">Nợ ${money(c.debt)}</span>` : ""}<button class="soft" data-cust-edit="${c.id}">Sửa</button> <button class="danger" data-cust-del="${c.id}">Xóa</button></div>
@@ -1255,22 +1281,71 @@ $("customerList")?.addEventListener("click", async e => {
     toast(r.success ? 'Đã xóa khách hàng' : r.error, !r.success ? false : true);
   }
 });
-$("addCustomerBtn")?.addEventListener("click", () => promptCustomer());
-$("addCustomerPageBtn")?.addEventListener("click", promptCustomer);
-async function promptCustomer() {
+$("addCustomerBtn")?.addEventListener("click", () => promptCustomer(true));
+$("addCustomerPageBtn")?.addEventListener("click", () => promptCustomer());
+function sortedCustomers(customers) {
+  return customers.slice().sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "vi", { sensitivity: "base" }));
+}
+
+async function promptCustomer(selectForOrder = false) {
   const name = prompt("Tên khách hàng:");
   if (!name) return;
   const phone = prompt("Số điện thoại:") || "";
   const r = await addCustomer({ name, phone });
-  if (r.success) toast("Đã thêm khách hàng"); else toast(r.error, false);
+  if (!r.success) { toast(r.error, false); return; }
+  if (r.id && !state.customers.some(customer => customer.id === r.id)) state.customers.push({ id: r.id, name, phone });
+  if (selectForOrder) {
+    renderCustomerSelect();
+    if (r.id && $("customerSelect")) $("customerSelect").value = r.id;
+    renderCart();
+  }
+  toast(selectForOrder ? "Đã thêm khách hàng vào đơn" : "Đã thêm khách hàng");
 }
 
 function renderCustomerSelect() {
   const s = $("customerSelect");
   if (!s) return;
   const keep = s.value;
-  s.innerHTML = '<option value="">Khách lẻ</option>' + state.customers.map(c => `<option value="${c.id}">${esc(c.name)}${c.phone ? ' · ' + esc(c.phone) : ''}</option>`).join("");
+  s.innerHTML = '<option value="">Khách lẻ</option>' + sortedCustomers(state.customers).map(c => `<option value="${esc(c.id)}">${esc(c.name || "Không tên")}${c.phone ? ' · ' + esc(c.phone) : ''}</option>`).join("");
   s.value = state.customers.some(c => c.id === keep) ? keep : "";
+}
+
+function openCustomerPicker() {
+  const selectedId = $("customerSelect")?.value || "";
+  const renderMatches = () => {
+    const q = ($("customerPickerSearch")?.value || "").trim().toLocaleLowerCase("vi");
+    const customers = sortedCustomers(state.customers).filter(customer =>
+      !q || `${customer.name || ""} ${customer.phone || ""}`.toLocaleLowerCase("vi").includes(q)
+    );
+    $("customerPickerList").innerHTML = `
+      <button type="button" class="customer-picker-option ${selectedId ? "" : "active"}" data-pick-customer="">
+        <span><b>Khách lẻ</b><small>Không gắn khách hàng vào đơn</small></span>${selectedId ? "" : "<strong>Đang chọn</strong>"}
+      </button>
+      ${customers.length ? customers.map(customer => `
+        <button type="button" class="customer-picker-option ${customer.id === selectedId ? "active" : ""}" data-pick-customer="${esc(customer.id)}">
+          <span><b>${esc(customer.name || "Không tên")}</b><small>${esc(customer.phone || "Không có số điện thoại")}</small></span>${customer.id === selectedId ? "<strong>Đang chọn</strong>" : ""}
+        </button>
+      `).join("") : `<div class="empty-detail">${q ? "Không tìm thấy khách hàng." : "Chưa có khách hàng."}</div>`}
+    `;
+  };
+  $("modalTitle").textContent = "Chọn khách hàng cho đơn";
+  $("modalBody").innerHTML = `
+    <label class="customer-picker-search">Tìm theo tên hoặc số điện thoại
+      <input id="customerPickerSearch" type="search" placeholder="Nhập tên hoặc số điện thoại...">
+    </label>
+    <div id="customerPickerList" class="customer-picker-list"></div>
+  `;
+  $("modal").classList.remove("hidden");
+  $("customerPickerSearch").addEventListener("input", renderMatches);
+  $("customerPickerList").addEventListener("click", event => {
+    const option = event.target.closest("[data-pick-customer]");
+    if (!option) return;
+    if ($("customerSelect")) $("customerSelect").value = option.dataset.pickCustomer;
+    $("modal").classList.add("hidden");
+    renderCart();
+  });
+  renderMatches();
+  requestAnimationFrame(() => $("customerPickerSearch")?.focus());
 }
 
 // ----- PHẦN 16: SUPPLIERS -----
@@ -1691,7 +1766,7 @@ $("markNotificationsRead")?.addEventListener('click', () => toast('Đã đánh d
 
 // ----- PHẦN 22: EXTRA CONTROLS (find customer, receive quick, open QR, change password, backup, reset demo) -----
 function bindExtraControls() {
-  $("findCustomerBtn")?.addEventListener("click", () => { setPage("customers"); setTimeout(() => $("customerPageSearch")?.focus(), 50); });
+  $("findCustomerBtn")?.addEventListener("click", openCustomerPicker);
   $("receiveQuickBtn")?.addEventListener("click", () => { setPage("inventory"); setTimeout(() => $("receiveBarcodeInput")?.focus(), 50); });
   $("openQrBtn")?.addEventListener("click", () => {
     const bank = $("qrText")?.textContent || "";
